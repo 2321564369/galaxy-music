@@ -11,8 +11,6 @@ var coverFilesCache = null;
 
 /* ========= STATE ========= */
 var currentSongs = [];
-var filteredSongs = [];
-var searchQuery = "";
 var index = 0;
 var shuffle = false;
 var autoplay = false;
@@ -31,15 +29,12 @@ var now = document.getElementById("nowPlaying");
 var progress = document.getElementById("progress");
 var volume = document.getElementById("volume");
 var timeText = document.getElementById("timeText");
+var sortSelect = document.getElementById("sortSelect");
 var playlistOptions = document.getElementById("playlistOptions");
 var playerHeartBtn = document.getElementById("playerHeartBtn");
 var viewTitle = document.getElementById("viewTitle");
 var deletePlaylistMessage = document.getElementById("deletePlaylistMessage");
 var connectionStatus = document.getElementById("connectionStatus");
-
-// Get search elements safely
-var searchInput = document.getElementById("searchInput");
-var clearSearchBtn = document.getElementById("clearSearchBtn");
 
 /* ========= BEAT VISUALIZER CONFIG ========= */
 var beatVisualizer = null;
@@ -72,7 +67,6 @@ class BeatVisualizer {
   
   initBars() {
     const container = document.querySelector('.beat-visualizer');
-    if (!container) return;
     container.innerHTML = '';
     this.bars = [];
     
@@ -599,8 +593,6 @@ function rescanSongs() {
     
     songs = [];
     currentSongs = [];
-    filteredSongs = [];
-    searchQuery = "";
     
     viewTitle.innerText = "Scanning...";
     list.innerHTML = '<div class="empty"><div class="spinner"></div><p>Scanning with GitHub API...</p></div>';
@@ -715,186 +707,106 @@ function removePlayingGifFromCover() {
   }
 }
 
-/* ========= SEARCH FUNCTIONS ========= */
-function searchSongs() {
-    if (!searchInput) return;
-    
-    searchQuery = searchInput.value.trim().toLowerCase();
-    
-    if (searchQuery === "") {
-        filteredSongs = [];
-        if (clearSearchBtn) clearSearchBtn.style.display = "none";
-        renderCurrentView();
-        return;
-    }
-    
-    if (clearSearchBtn) clearSearchBtn.style.display = "block";
-    
-    // Search through current songs
-    filteredSongs = currentSongs.filter(song => {
-        return song.title.toLowerCase().includes(searchQuery) ||
-               song.artist.toLowerCase().includes(searchQuery) ||
-               song.album.toLowerCase().includes(searchQuery);
-    });
-    
-    // Update the view title with search results
-    if (filteredSongs.length > 0) {
-        viewTitle.innerText = `Search Results (${filteredSongs.length})`;
-    } else {
-        viewTitle.innerText = `No results for "${searchQuery}"`;
-    }
-    
-    // Render the filtered songs
-    renderSongs(filteredSongs, false);
-    
-    // Remove playing state from search results
-    updatePlayingStateInList(false);
-}
-
-function clearSearch() {
-    if (searchInput) searchInput.value = "";
-    searchQuery = "";
-    filteredSongs = [];
-    if (clearSearchBtn) clearSearchBtn.style.display = "none";
-    renderCurrentView();
-}
-
-function renderCurrentView() {
-    // Render whatever is currently selected (All Songs, Liked, or Playlist)
-    if (currentPlaylist === null) {
-        loadAll();
-    } else if (currentPlaylist === "liked") {
-        loadLiked();
-    } else {
-        loadPlaylist(currentPlaylist);
-    }
-}
-
-// Helper function to highlight matching text
-function highlightText(text, query) {
-    if (!query) return text;
-    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    return text.replace(regex, '<span class="search-highlight">$1</span>');
-}
-
-/* ========= RENDER SONGS ========= */
 function renderSongs(arr, shouldScroll = false) {
-    // If there's an active search, don't reset the view
-    if (searchQuery !== "" && arr === currentSongs) {
-        searchSongs();
-        return;
-    }
+  if (!arr || arr.length === 0) {
+    list.innerHTML = `
+      <div class="empty">
+        <p>No songs found</p>
+        <button onclick="rescanSongs()" class="scan-btn">Try Scanning Again</button>
+      </div>`;
+    return;
+  }
+  
+  list.innerHTML = "";
+
+  arr.forEach(function (s) {
+    const row = document.createElement("div");
+    row.className = "song" + (s.disabled ? " disabled" : "");
+    row.dataset.id = s.id;
+
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    thumb.style.backgroundImage = `url("${s.cover}")`;
+
+    const info = document.createElement("div");
+    info.className = "songInfo";
     
-    if (!arr || arr.length === 0) {
-        list.innerHTML = `
-            <div class="empty">
-                <p>No songs found</p>
-                ${searchQuery ? `<p>Try a different search term</p>` : ''}
-                <button onclick="rescanSongs()" class="scan-btn">Try Scanning Again</button>
-            </div>`;
-        return;
-    }
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "songTitle";
+    titleDiv.textContent = s.title;
     
-    list.innerHTML = "";
-
-    arr.forEach(function (s) {
-        const row = document.createElement("div");
-        row.className = "song" + (s.disabled ? " disabled" : "");
-        row.dataset.id = s.id;
-
-        const thumb = document.createElement("div");
-        thumb.className = "thumb";
-        thumb.style.backgroundImage = `url("${s.cover}")`;
-
-        const info = document.createElement("div");
-        info.className = "songInfo";
-        
-        const titleDiv = document.createElement("div");
-        titleDiv.className = "songTitle";
-        // Highlight matching text in title
-        if (searchQuery && s.title.toLowerCase().includes(searchQuery)) {
-            titleDiv.innerHTML = highlightText(s.title, searchQuery);
-        } else {
-            titleDiv.textContent = s.title;
-        }
-        
-        const metaDiv = document.createElement("div");
-        metaDiv.className = "songMeta";
-        // Highlight matching text in artist or album
-        let metaText = `${s.artist} • ${s.album} • ${formatTime(s.duration)}`;
-        if (searchQuery) {
-            metaText = highlightText(metaText, searchQuery);
-        }
-        metaDiv.innerHTML = metaText;
-        
-        info.appendChild(titleDiv);
-        info.appendChild(metaDiv);
-
-        const toggle = document.createElement("label");
-        toggle.className = "toggle-switch";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = !s.disabled;
-        checkbox.onchange = function (e) {
-            const newDisabledState = !e.target.checked;
-            s.disabled = newDisabledState;
-            saveToggleState(s.id, newDisabledState);
-            
-            if (newDisabledState) {
-                row.classList.add('disabled');
-            } else {
-                row.classList.remove('disabled');
-            }
-        };
-
-        const slider = document.createElement("span");
-        slider.className = "toggle-slider";
-
-        toggle.appendChild(checkbox);
-        toggle.appendChild(slider);
-
-        const addBtn = document.createElement("button");
-        addBtn.className = "addBtn";
-        addBtn.innerHTML = "+";
-        addBtn.title = "Add to playlist";
-        addBtn.onclick = function(e) {
-            e.stopPropagation();
-            showAddToPlaylistModal(s.id);
-        };
-
-        const likeBtn = document.createElement("button");
-        likeBtn.className = "likeBtn";
-        likeBtn.title = "Like song";
-        likeBtn.onclick = function(e) {
-            e.stopPropagation();
-            toggleSongLike(s.id);
-        };
-        
-        const originalSong = songs.find(original => original.id === s.id);
-        likeBtn.classList.toggle('liked', originalSong ? originalSong.liked : s.liked);
-
-        const controlsDiv = document.createElement("div");
-        controlsDiv.className = "songControls";
-        controlsDiv.appendChild(likeBtn);
-        controlsDiv.appendChild(addBtn);
-        controlsDiv.appendChild(toggle);
-
-        row.appendChild(thumb);
-        row.appendChild(info);
-        row.appendChild(controlsDiv);
-
-        row.onclick = function () {
-            if (!s.disabled) {
-                const playIndex = currentSongs.findIndex(song => song.id === s.id);
-                if (playIndex !== -1) play(playIndex);
-            }
-        };
-
-        list.appendChild(row);
-    });
+    const metaDiv = document.createElement("div");
+    metaDiv.className = "songMeta";
+    metaDiv.textContent = `${s.artist} • ${s.album} • ${formatTime(s.duration)}`;
     
-    updatePlayingStateInList(shouldScroll);
+    info.appendChild(titleDiv);
+    info.appendChild(metaDiv);
+
+    const toggle = document.createElement("label");
+    toggle.className = "toggle-switch";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = !s.disabled;
+    checkbox.onchange = function (e) {
+      const newDisabledState = !e.target.checked;
+      s.disabled = newDisabledState;
+      saveToggleState(s.id, newDisabledState);
+      
+      if (newDisabledState) {
+        row.classList.add('disabled');
+      } else {
+        row.classList.remove('disabled');
+      }
+    };
+
+    const slider = document.createElement("span");
+    slider.className = "toggle-slider";
+
+    toggle.appendChild(checkbox);
+    toggle.appendChild(slider);
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "addBtn";
+    addBtn.innerHTML = "+";
+    addBtn.title = "Add to playlist";
+    addBtn.onclick = function(e) {
+      e.stopPropagation();
+      showAddToPlaylistModal(s.id);
+    };
+
+    const likeBtn = document.createElement("button");
+    likeBtn.className = "likeBtn";
+    likeBtn.title = "Like song";
+    likeBtn.onclick = function(e) {
+      e.stopPropagation();
+      toggleSongLike(s.id);
+    };
+    
+    const originalSong = songs.find(original => original.id === s.id);
+    likeBtn.classList.toggle('liked', originalSong ? originalSong.liked : s.liked);
+
+    const controlsDiv = document.createElement("div");
+    controlsDiv.className = "songControls";
+    controlsDiv.appendChild(likeBtn);
+    controlsDiv.appendChild(addBtn);
+    controlsDiv.appendChild(toggle);
+
+    row.appendChild(thumb);
+    row.appendChild(info);
+    row.appendChild(controlsDiv);
+
+    row.onclick = function () {
+      if (!s.disabled) {
+        const playIndex = currentSongs.findIndex(song => song.id === s.id);
+        if (playIndex !== -1) play(playIndex);
+      }
+    };
+
+    list.appendChild(row);
+  });
+  
+  updatePlayingStateInList(shouldScroll);
 }
 
 /* ========= PLAYBACK FUNCTIONS ========= */
@@ -1088,13 +1000,30 @@ volume.oninput = function () {
 };
 
 /* ========= UI FUNCTIONS ========= */
+sortSelect.onchange = function () {
+  const v = sortSelect.value;
+  const sorted = [...currentSongs];
+
+  if (v === "artist") {
+    sorted.sort((a, b) => a.artist.localeCompare(b.artist));
+  } else if (v === "album") {
+    sorted.sort((a, b) => (a.album || "").localeCompare(b.album || ""));
+  }
+
+  currentSongs = sorted;
+  renderSongs(currentSongs, false);
+  
+  if (currentSongId !== null) {
+    const newIndex = currentSongs.findIndex(song => song.id === currentSongId);
+    if (newIndex !== -1) {
+      index = newIndex;
+    }
+  }
+};
+
 function loadAll() {
   currentSongs = songs;
   currentPlaylist = null;
-  // Clear search if active
-  if (searchQuery) {
-    clearSearch();
-  }
   renderSongs(currentSongs, false);
   document.querySelectorAll("#playlists li").forEach(li => li.classList.remove("active"));
   document.querySelectorAll("#playlists li")[0].classList.add("active");
@@ -1104,10 +1033,6 @@ function loadAll() {
 function loadLiked() {
   currentSongs = songs.filter(s => s.liked);
   currentPlaylist = "liked";
-  // Clear search if active
-  if (searchQuery) {
-    clearSearch();
-  }
   viewTitle.innerText = `Liked Songs (${currentSongs.length})`;
   renderSongs(currentSongs, false);
   document.querySelectorAll("#playlists li").forEach(li => li.classList.remove("active"));
@@ -1222,10 +1147,6 @@ function loadPlaylist(name) {
   if (playlists[name]) {
     currentSongs = songs.filter(s => playlists[name].includes(s.id));
     currentPlaylist = name;
-    // Clear search if active
-    if (searchQuery) {
-      clearSearch();
-    }
     viewTitle.innerText = `${name} (${currentSongs.length})`;
     renderSongs(currentSongs, false);
     
