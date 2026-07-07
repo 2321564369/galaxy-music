@@ -28,14 +28,13 @@
   <!-- Main -->
   <main class="content">
     <div class="topbar">
-      <h1 id="viewTitle">Scanning music...</h1>
-      <div id="connectionStatus" class="connection-status"></div>
-      <select id="sortSelect">
-        <option value="none">Sort</option>
-        <option value="artist">Artist</option>
-        <option value="album">Genre</option>
-      </select>
-    </div>
+  <h1 id="viewTitle">Scanning music...</h1>
+  <div id="connectionStatus" class="connection-status"></div>
+  <div class="search-container">
+    <input type="text" id="searchInput" placeholder="🔍 Search songs, artists, albums..." oninput="searchSongs()">
+    <button onclick="clearSearch()" id="clearSearchBtn" style="display:none;">✕</button>
+  </div>
+</div>
 
     <div id="songList" class="songs"></div>
   </main>
