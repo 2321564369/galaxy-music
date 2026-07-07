@@ -11,7 +11,7 @@ var coverFilesCache = null;
 
 /* ========= STATE ========= */
 var currentSongs = [];
-var filteredSongs = []; // For search results
+var filteredSongs = [];
 var searchQuery = "";
 var index = 0;
 var shuffle = false;
@@ -36,6 +36,8 @@ var playerHeartBtn = document.getElementById("playerHeartBtn");
 var viewTitle = document.getElementById("viewTitle");
 var deletePlaylistMessage = document.getElementById("deletePlaylistMessage");
 var connectionStatus = document.getElementById("connectionStatus");
+
+// Get search elements safely
 var searchInput = document.getElementById("searchInput");
 var clearSearchBtn = document.getElementById("clearSearchBtn");
 
@@ -70,6 +72,7 @@ class BeatVisualizer {
   
   initBars() {
     const container = document.querySelector('.beat-visualizer');
+    if (!container) return;
     container.innerHTML = '';
     this.bars = [];
     
@@ -714,16 +717,18 @@ function removePlayingGifFromCover() {
 
 /* ========= SEARCH FUNCTIONS ========= */
 function searchSongs() {
+    if (!searchInput) return;
+    
     searchQuery = searchInput.value.trim().toLowerCase();
     
     if (searchQuery === "") {
         filteredSongs = [];
-        clearSearchBtn.style.display = "none";
+        if (clearSearchBtn) clearSearchBtn.style.display = "none";
         renderCurrentView();
         return;
     }
     
-    clearSearchBtn.style.display = "block";
+    if (clearSearchBtn) clearSearchBtn.style.display = "block";
     
     // Search through current songs
     filteredSongs = currentSongs.filter(song => {
@@ -747,10 +752,10 @@ function searchSongs() {
 }
 
 function clearSearch() {
-    searchInput.value = "";
+    if (searchInput) searchInput.value = "";
     searchQuery = "";
     filteredSongs = [];
-    clearSearchBtn.style.display = "none";
+    if (clearSearchBtn) clearSearchBtn.style.display = "none";
     renderCurrentView();
 }
 
@@ -776,7 +781,6 @@ function highlightText(text, query) {
 function renderSongs(arr, shouldScroll = false) {
     // If there's an active search, don't reset the view
     if (searchQuery !== "" && arr === currentSongs) {
-        // Re-apply search filter
         searchSongs();
         return;
     }
