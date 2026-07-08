@@ -1273,7 +1273,6 @@ function renderSongs(arr, shouldScroll = false) {
 }
 
 /* ========= ARTISTS FUNCTIONS ========= */
-
 function renderArtists(artists) {
     if (!artists || artists.length === 0) {
         list.innerHTML = `
@@ -1351,19 +1350,6 @@ function playArtist(artistName) {
 }
 
 /* ========= UI FUNCTIONS ========= */
-function loadAll() {
-    currentSongs = songs;
-    currentPlaylist = null;
-    selectedArtist = null;
-    if (searchQuery) {
-        clearSearch();
-    }
-    updateCachedSongsUI(false);
-    renderSongs(currentSongs, false);
-    renderPlaylists();
-    viewTitle.innerText = `All Songs (${songs.length})`;
-}
-
 function loadArtists() {
     selectedArtist = null;
     currentPlaylist = "artists";
@@ -1396,6 +1382,19 @@ function loadLiked() {
     viewTitle.innerText = `Liked Songs (${currentSongs.length})`;
     renderSongs(currentSongs, false);
     renderPlaylists();
+}
+
+function loadAll() {
+    currentSongs = songs;
+    currentPlaylist = null;
+    selectedArtist = null;
+    if (searchQuery) {
+        clearSearch();
+    }
+    updateCachedSongsUI(false);
+    renderSongs(currentSongs, false);
+    renderPlaylists();
+    viewTitle.innerText = `All Songs (${songs.length})`;
 }
 
 function loadPlaylist(name) {
@@ -1467,6 +1466,7 @@ function renderPlaylists() {
         playlistsList.appendChild(li);
     }
 }
+
 /* ========= SEARCH FUNCTIONS ========= */
 function searchSongs() {
     if (!searchInput) return;
