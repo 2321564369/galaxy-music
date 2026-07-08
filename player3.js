@@ -1,5 +1,4 @@
-/*hoi2*/
-/* ========= CONFIGURATION ========= */
+/* ========= CONFIGURATION ========= 3*/
 // Use jsDelivr for everything (no CORS, no rate limits)
 const JS_DELIVR_BASE = "https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main";
 const MUSIC_FOLDER = `${JS_DELIVR_BASE}/music/`;
@@ -415,6 +414,27 @@ function toggleCaching() {
     }
     
     updateCachedSongsUI(false);
+}
+
+/* ========= BEAT VISUALIZER HELPER ========= */
+function initBeatVisualizer() {
+    const audioElement = document.getElementById('audio');
+    beatVisualizer = new BeatVisualizer(audioElement);
+    // Don't auto-init - wait for user interaction
+}
+
+// Call this on user interaction
+function startBeatVisualizer() {
+    if (beatVisualizer && !beatVisualizer.isInitialized) {
+        beatVisualizer.init().then(() => {
+            console.log('Beat visualizer ready');
+            if (!audio.paused) {
+                beatVisualizer.start();
+            }
+        }).catch(e => {
+            console.warn('Beat visualizer init failed:', e);
+        });
+    }
 }
 
 /* ========= FILENAME PARSING ========= */
@@ -879,10 +899,7 @@ async function play(i) {
     
     updateNowPlayingUI(song);
     
-    if (beatVisualizer && !beatVisualizer.isInitialized) {
-        await beatVisualizer.init();
-    }
-    
+    // Start beat visualizer if already initialized
     if (beatVisualizer && beatVisualizer.isInitialized) {
         beatVisualizer.start();
     }
@@ -1732,20 +1749,6 @@ iframe{border:0;width:100%;height:100%}
     }
 }
 
-/* ========= BEAT VISUALIZER HELPER ========= */
-function initBeatVisualizer() {
-    const audioElement = document.getElementById('audio');
-    beatVisualizer = new BeatVisualizer(audioElement);
-    
-    document.addEventListener('click', async function initOnInteraction() {
-        if (beatVisualizer && !beatVisualizer.isInitialized) {
-            await beatVisualizer.init();
-            console.log('Beat visualizer ready');
-        }
-        document.removeEventListener('click', initOnInteraction);
-    }, { once: true });
-}
-
 function updateConnectionStatus() {
     if (!connectionStatus) return;
     
@@ -1891,7 +1894,9 @@ window.onload = async function() {
     audio.volume = 0.4;
     updateProgressBars();
     updateConnectionStatus();
-    initBeatVisualizer();
+    
+    // Create beat visualizer but don't initialize yet
+    beatVisualizer = new BeatVisualizer(document.getElementById('audio'));
     
     const scanBtn = document.createElement("button");
     scanBtn.className = "new-playlist";
@@ -1927,3 +1932,34 @@ window.onload = async function() {
         });
     };
 };
+
+// Wait for user interaction to start beat visualizer
+document.addEventListener('click', function initBeatOnInteraction() {
+    if (beatVisualizer && !beatVisualizer.isInitialized) {
+        beatVisualizer.init().then(() => {
+            console.log('Beat visualizer ready');
+            if (!audio.paused) {
+                beatVisualizer.start();
+            }
+        }).catch(e => {
+            console.warn('Beat visualizer init failed:', e);
+        });
+    }
+    document.removeEventListener('click', initBeatOnInteraction);
+}, { once: true });
+
+// Also try to start when play button is clicked
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.icon.play') || e.target.closest('.play')) {
+        if (beatVisualizer && !beatVisualizer.isInitialized) {
+            beatVisualizer.init().then(() => {
+                console.log('Beat visualizer ready from play button');
+                if (!audio.paused) {
+                    beatVisualizer.start();
+                }
+            }).catch(e => {
+                console.warn('Beat visualizer init failed:', e);
+            });
+        }
+    }
+});
