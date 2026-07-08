@@ -1413,31 +1413,31 @@ function loadPlaylist(name) {
 }
 
 function renderPlaylists() {
+    // Get the list items
+    const allLi = document.getElementById("allSongsLi");
+    const artistsLi = document.getElementById("artistsLi");
+    const likedLi = document.getElementById("likedLi");
+    
+    // Update active states
+    if (allLi) {
+        allLi.className = (currentPlaylist === null || currentPlaylist === "all") ? "active" : "";
+    }
+    if (artistsLi) {
+        artistsLi.className = (currentPlaylist === "artists") ? "active" : "";
+    }
+    if (likedLi) {
+        likedLi.className = (currentPlaylist === "liked") ? "active" : "";
+    }
+    
+    // Now handle user playlists
     const playlistsList = document.getElementById("playlists");
-    playlistsList.innerHTML = '';
     
-    // All Songs
-    const allLi = document.createElement("li");
-    if (currentPlaylist === null || currentPlaylist === "all") allLi.className = "active";
-    allLi.onclick = function() { if (searchQuery) clearSearch(); loadAll(); };
-    allLi.textContent = "All Songs";
-    playlistsList.appendChild(allLi);
+    // Remove old user playlist items (keep the first 3)
+    while (playlistsList.children.length > 3) {
+        playlistsList.removeChild(playlistsList.lastChild);
+    }
     
-    // Artists
-    const artistsLi = document.createElement("li");
-    if (currentPlaylist === "artists") artistsLi.className = "active";
-    artistsLi.onclick = function() { if (searchQuery) clearSearch(); loadArtists(); };
-    artistsLi.textContent = "🎤 Artists";
-    playlistsList.appendChild(artistsLi);
-    
-    // Liked
-    const likedLi = document.createElement("li");
-    if (currentPlaylist === "liked") likedLi.className = "active";
-    likedLi.onclick = function() { if (searchQuery) clearSearch(); loadLiked(); };
-    likedLi.textContent = "❤️ Liked";
-    playlistsList.appendChild(likedLi);
-    
-    // User playlists
+    // Add user playlists
     for (const name in playlists) {
         const li = document.createElement("li");
         li.className = "playlist-item";
