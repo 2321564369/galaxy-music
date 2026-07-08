@@ -9,9 +9,11 @@ var coverFilesCache = null;
 
 /* ========= STATE ========= */
 var currentSongs = [];
+var filteredSongs = [];
+var searchQuery = "";
 var index = 0;
 var shuffle = false;
-var autoplay = false;
+var autoplay = true;
 var cachingEnabled = true;
 var currentSongId = null;
 var currentCacheBlobUrl = null;
@@ -19,6 +21,7 @@ var liked = JSON.parse(localStorage.getItem("likedSongs")) || [];
 var playlists = JSON.parse(localStorage.getItem("playlists")) || {};
 var disabledSongs = JSON.parse(localStorage.getItem("disabledSongs")) || [];
 var currentPlaylist = null;
+var selectedArtist = null;
 var playlistToDelete = null;
 var isCaching = false;
 var cacheProgress = 0;
@@ -39,8 +42,38 @@ var viewTitle = document.getElementById("viewTitle");
 var deletePlaylistMessage = document.getElementById("deletePlaylistMessage");
 var connectionStatus = document.getElementById("connectionStatus");
 var cachingToggle = document.getElementById("cachingToggle");
+var searchInput = document.getElementById("searchInput");
+var clearSearchBtn = document.getElementById("clearSearchBtn");
 
-/* ========= BEAT VISUALIZER CONFIG ========= */
+/* ========= HELPER FUNCTIONS ========= */
+function shuffleArray(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+}
+
+function escapeString(str) {
+    if (!str) return '';
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function escapeHTML(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function highlightText(text, query) {
+    if (!query || !text) return text;
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<span class="search-highlight">$1</span>');
+}
+
+/* ========= BEAT VISUALIZER ========= */
 var beatVisualizer = null;
 var VISUALIZER_CONFIG = {
   numBars: 50, 
@@ -71,6 +104,7 @@ class BeatVisualizer {
   
   initBars() {
     const container = document.querySelector('.beat-visualizer');
+    if (!container) return;
     container.innerHTML = '';
     this.bars = [];
     
@@ -123,7 +157,7 @@ class BeatVisualizer {
       this.dataArray = new Uint8Array(bufferLength);
       
       this.isInitialized = true;
-      console.log('Beat visualizer initialized with', VISUALIZER_CONFIG.numBars, 'bars');
+      console.log('Beat visualizer initialized');
       
     } catch (error) {
       console.error('Failed to initialize beat visualizer:', error);
@@ -231,11 +265,8 @@ async function cacheSingleSong(song) {
             return true;
         }
         
-        // Try raw GitHub URL first
         const filename = song.file.split('/').pop();
         const rawUrl = `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(filename)}`;
-        
-        console.log(`📥 Caching from raw URL: ${rawUrl}`);
         
         const response = await fetch(rawUrl, {
             mode: 'cors',
@@ -243,7 +274,6 @@ async function cacheSingleSong(song) {
         });
         
         if (response.ok) {
-            // Get blob and create new response for cache
             const blob = await response.blob();
             const cacheResponse = new Response(blob, {
                 status: 200,
@@ -258,7 +288,6 @@ async function cacheSingleSong(song) {
             return true;
         }
         
-        // Try GitHub Pages URL as fallback
         const fallbackUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
         const fallbackResponse = await fetch(fallbackUrl, {
             mode: 'cors',
@@ -286,6 +315,7 @@ async function cacheSingleSong(song) {
         return false;
     }
 }
+
 async function getCachedSong(song) {
     try {
         const cache = await caches.open(CACHE_NAME);
@@ -374,25 +404,22 @@ async function clearCache() {
 
 /* ========= TOGGLE CACHING ========= */
 function toggleCaching() {
+    if (!cachingToggle) return;
     cachingEnabled = cachingToggle.checked;
     localStorage.setItem('cachingEnabled', JSON.stringify(cachingEnabled));
     
     console.log(`💾 Caching ${cachingEnabled ? 'enabled' : 'disabled'}`);
     
     if (cachingEnabled) {
-        // Start background caching
         viewTitle.innerText = "Caching all songs...";
         setTimeout(() => {
             cacheAllSongsBackground(songs);
         }, 500);
     } else {
-        // Remove any cached songs (keep only current if playing)
         if (currentSongId !== null) {
             const currentSong = songs.find(s => s.id === currentSongId);
-            // Clear all cache except current song
             clearCache().then(() => {
                 if (currentSong && currentSong.cached) {
-                    // Re-cache current song if it was cached
                     cacheSingleSong(currentSong);
                 }
             });
@@ -403,244 +430,6 @@ function toggleCaching() {
     }
     
     updateCachedSongsUI(false);
-}
-
-/* ========= PLAYBACK FUNCTIONS ========= */
-async function play(i) {
-    if (!currentSongs || i < 0 || i >= currentSongs.length) return;
-    
-    // If caching is off, remove previous song from cache
-    if (!cachingEnabled && currentSongId !== null && currentSongId !== currentSongs[i].id) {
-        const prevSong = songs.find(s => s.id === currentSongId);
-        if (prevSong && prevSong.cached) {
-            await removeFromCache(prevSong);
-        }
-        if (currentCacheBlobUrl) {
-            URL.revokeObjectURL(currentCacheBlobUrl);
-            currentCacheBlobUrl = null;
-        }
-    }
-    
-    index = i;
-    const song = currentSongs[i];
-    
-    console.log(`🎵 Playing: ${song.title} (Cached: ${song.cached})`);
-    
-    updateNowPlayingUI(song);
-    
-    if (beatVisualizer && !beatVisualizer.isInitialized) {
-        await beatVisualizer.init();
-    }
-    
-    if (beatVisualizer && beatVisualizer.isInitialized) {
-        beatVisualizer.start();
-    }
-    
-    // Check if song is cached
-    const cachedBlob = await getCachedSong(song);
-    
-    if (cachedBlob) {
-        // Play from cache
-        playFromCache(song, cachedBlob);
-    } else if (navigator.onLine) {
-        // Not cached - download, cache if enabled, then play
-        await downloadAndPlay(song);
-    } else {
-        alert(`Cannot play "${song.title}" offline. Please connect to the internet first.`);
-        if (beatVisualizer) beatVisualizer.stop();
-    }
-}
-
-function playFromCache(song, blob) {
-    if (currentCacheBlobUrl) {
-        URL.revokeObjectURL(currentCacheBlobUrl);
-        currentCacheBlobUrl = null;
-    }
-    
-    const blobUrl = URL.createObjectURL(blob);
-    currentCacheBlobUrl = blobUrl;
-    
-    audio.src = blobUrl;
-    audio.crossOrigin = "anonymous";
-    
-    audio.play().then(() => {
-        document.querySelector(".icon.play").classList.add("playing");
-    }).catch(e => {
-        console.error("Play error from cache:", e);
-        if (beatVisualizer) beatVisualizer.stop();
-        if (navigator.onLine) {
-            downloadAndPlay(song);
-        }
-    });
-}
-
-async function downloadAndPlay(song) {
-    now.innerText = `Loading "${song.title}"...`;
-    
-    try {
-        // Extract filename from the URL
-        const filename = song.file.split('/').pop();
-        
-        // Try raw GitHub URL first
-        const rawUrl = `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(filename)}`;
-        
-        console.log(`🌐 Fetching from raw URL: ${rawUrl}`);
-        
-        const response = await fetch(rawUrl, {
-            mode: 'cors',
-            credentials: 'omit'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        // Get the blob from the response
-        const blob = await response.blob();
-        
-        // Create a new response from the blob for caching
-        const cacheResponse = new Response(blob, {
-            status: 200,
-            statusText: 'OK',
-            headers: {
-                'Content-Type': response.headers.get('Content-Type') || 'audio/mpeg'
-            }
-        });
-        
-        // Save to cache
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(song.file, cacheResponse);
-        song.cached = true;
-        updateCachedSongsUI(false);
-        
-        // Play from blob
-        if (currentCacheBlobUrl) {
-            URL.revokeObjectURL(currentCacheBlobUrl);
-            currentCacheBlobUrl = null;
-        }
-        
-        const blobUrl = URL.createObjectURL(blob);
-        currentCacheBlobUrl = blobUrl;
-        
-        audio.src = blobUrl;
-        audio.crossOrigin = "anonymous";
-        
-        audio.play().then(() => {
-            document.querySelector(".icon.play").classList.add("playing");
-            now.innerText = `${song.title} • ${song.artist}`;
-        }).catch(e => {
-            console.error("Play error after caching:", e);
-            if (beatVisualizer) beatVisualizer.stop();
-            // Try GitHub Pages URL as fallback
-            tryFallbackPlay(song);
-        });
-        
-    } catch (error) {
-        console.error("Download error:", error);
-        // Try GitHub Pages URL as fallback
-        tryFallbackPlay(song);
-    }
-}
-
-function tryFallbackPlay(song) {
-    const filename = song.file.split('/').pop();
-    const fallbackUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
-    
-    console.log(`🔄 Trying fallback URL: ${fallbackUrl}`);
-    
-    audio.src = fallbackUrl;
-    audio.crossOrigin = "anonymous";
-    audio.load();
-    
-    audio.play().then(() => {
-        document.querySelector(".icon.play").classList.add("playing");
-        now.innerText = `${song.title} • ${song.artist}`;
-    }).catch(e => {
-        console.error("Fallback play error:", e);
-        alert("Could not play this song. Please try again later.");
-        now.innerText = `${song.title} • ${song.artist}`;
-    });
-}
-
-function toggle() {
-    if (audio.paused) {
-        if (!audio.src && currentSongs.length > 0) {
-            play(0);
-        } else {
-            audio.play();
-            document.querySelector(".icon.play").classList.add("playing");
-            addPlayingGifToCover();
-            
-            if (beatVisualizer && beatVisualizer.isInitialized) {
-                beatVisualizer.start();
-            }
-        }
-    } else {
-        audio.pause();
-        document.querySelector(".icon.play").classList.remove("playing");
-        removePlayingGifFromCover();
-        
-        if (beatVisualizer) {
-            beatVisualizer.stop();
-        }
-    }
-}
-
-function next() {
-    if (!currentSongs || currentSongs.length === 0) return false;
-    
-    let nextIndex;
-    
-    if (shuffle) {
-        const available = currentSongs.filter((s, i) => !s.disabled && i !== index);
-        if (available.length === 0) return false;
-        const randomSong = available[Math.floor(Math.random() * available.length)];
-        nextIndex = currentSongs.findIndex(s => s.id === randomSong.id);
-    } else {
-        nextIndex = (index + 1) % currentSongs.length;
-        let tries = 0;
-        while (currentSongs[nextIndex].disabled && tries < currentSongs.length) {
-            nextIndex = (nextIndex + 1) % currentSongs.length;
-            tries++;
-        }
-    }
-    
-    if (nextIndex >= 0 && nextIndex < currentSongs.length && !currentSongs[nextIndex].disabled) {
-        play(nextIndex);
-        return true;
-    }
-    
-    return false;
-}
-
-function prev() {
-    if (!currentSongs || currentSongs.length === 0) return false;
-    
-    let prevIndex = (index - 1 + currentSongs.length) % currentSongs.length;
-    let tries = 0;
-    while (currentSongs[prevIndex].disabled && tries < currentSongs.length) {
-        prevIndex = (prevIndex - 1 + currentSongs.length) % currentSongs.length;
-        tries++;
-    }
-    
-    if (prevIndex >= 0 && prevIndex < currentSongs.length && !currentSongs[prevIndex].disabled) {
-        play(prevIndex);
-        return true;
-    }
-    
-    return false;
-}
-
-function toggleShuffle() {
-    shuffle = !shuffle;
-    document.querySelector(".icon.shuffle").classList.toggle("active", shuffle);
-    localStorage.setItem("shuffle", JSON.stringify(shuffle));
-}
-
-function toggleAutoplay() {
-    autoplay = !autoplay;
-    document.querySelector(".icon.autoplay").classList.toggle("active", autoplay);
-    localStorage.setItem("autoplay", JSON.stringify(autoplay));
 }
 
 /* ========= FILENAME PARSING ========= */
@@ -866,6 +655,9 @@ async function loadSongsFromList(fileList) {
         const fileUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
         const songCover = await getCoverArt(artist, title, filename);
         
+        // Check if this song ID is in the disabled list
+        const isDisabled = disabledSongs.includes(i);
+        
         const song = {
             id: i,
             title: title,
@@ -873,7 +665,7 @@ async function loadSongsFromList(fileList) {
             album: album,
             file: fileUrl,
             cover: songCover,
-            disabled: disabledSongs.includes(i),
+            disabled: isDisabled,
             liked: liked.includes(i),
             cached: false,
             duration: 0
@@ -973,19 +765,18 @@ function loadSongDuration(song) {
 }
 
 async function finishLoading(loadedSongs) {
-    songs = loadedSongs;
-    console.log(`Loaded ${songs.length} songs`);
+    songs = shuffleArray(loadedSongs);
     
-    // Clear old cache
+    songs.forEach((song, index) => {
+        song.id = index;
+    });
+    
+    console.log(`Loaded and shuffled ${songs.length} songs`);
+    
     await clearCache();
-    
-    // Save initial state
     saveSongsToCache();
-    
-    // Load all songs
     loadAll();
     
-    // Start background caching if enabled
     if (cachingEnabled) {
         setTimeout(() => {
             cacheAllSongsBackground(songs);
@@ -993,6 +784,15 @@ async function finishLoading(loadedSongs) {
     } else {
         console.log('Background caching disabled - will cache on-demand');
     }
+    
+    setTimeout(() => {
+        if (songs.length > 0) {
+            const firstEnabledIndex = songs.findIndex(s => !s.disabled);
+            if (firstEnabledIndex !== -1) {
+                play(firstEnabledIndex);
+            }
+        }
+    }, 1500);
 }
 
 function saveSongsToCache() {
@@ -1019,6 +819,10 @@ function useCachedSongs() {
     if (cached && lastScan && (Date.now() - lastScan) < 24 * 60 * 60 * 1000) {
         try {
             songs = JSON.parse(cached);
+            songs = shuffleArray(songs);
+            songs.forEach((song, index) => {
+                song.id = index;
+            });
             console.log(`Loaded ${songs.length} songs from cache`);
             loadAll();
         } catch (e) {
@@ -1045,53 +849,239 @@ function rescanSongs() {
     }
 }
 
-/* ========= HELPER FUNCTIONS ========= */
-function formatTime(sec) {
-    if (!sec) return "0:00";
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return m + ":" + (s < 10 ? "0" + s : s);
+function shuffleSongsList() {
+    songs = shuffleArray(songs);
+    songs.forEach((song, index) => {
+        song.id = index;
+    });
+    saveSongsToCache();
+    loadAll();
+    console.log('🔀 Songs shuffled!');
 }
 
-function updateLikeButton() {
-    if (currentSongs[index]) {
-        const song = currentSongs[index];
-        const originalSong = songs.find(s => s.id === song.id);
-        if (originalSong && originalSong.liked) {
-            playerHeartBtn.classList.add('liked');
-        } else {
-            playerHeartBtn.classList.remove('liked');
+/* ========= PLAYBACK FUNCTIONS ========= */
+async function play(i) {
+    if (!currentSongs || i < 0 || i >= currentSongs.length) return;
+    
+    if (!cachingEnabled && currentSongId !== null && currentSongId !== currentSongs[i].id) {
+        const prevSong = songs.find(s => s.id === currentSongId);
+        if (prevSong && prevSong.cached) {
+            await removeFromCache(prevSong);
+        }
+        if (currentCacheBlobUrl) {
+            URL.revokeObjectURL(currentCacheBlobUrl);
+            currentCacheBlobUrl = null;
         }
     }
-}
-
-function updateProgressBars() {
-    if (audio.duration) {
-        const progressPercent = (audio.currentTime / audio.duration) * 100;
-        progress.style.setProperty('--progress', `${progressPercent}%`);
+    
+    index = i;
+    const song = currentSongs[i];
+    
+    console.log(`🎵 Playing: ${song.title} (Cached: ${song.cached})`);
+    
+    updateNowPlayingUI(song);
+    
+    if (beatVisualizer && !beatVisualizer.isInitialized) {
+        await beatVisualizer.init();
     }
     
-    const volumePercent = audio.volume * 100;
-    volume.style.setProperty('--volume', `${volumePercent}%`);
+    if (beatVisualizer && beatVisualizer.isInitialized) {
+        beatVisualizer.start();
+    }
+    
+    const cachedBlob = await getCachedSong(song);
+    
+    if (cachedBlob) {
+        playFromCache(song, cachedBlob);
+    } else if (navigator.onLine) {
+        await downloadAndPlay(song);
+    } else {
+        alert(`Cannot play "${song.title}" offline. Please connect to the internet first.`);
+        if (beatVisualizer) beatVisualizer.stop();
+    }
 }
 
-/* ========= TOGGLE STATE SAVING ========= */
-function saveToggleState(songId, isDisabled) {
-    if (isDisabled) {
-        if (!disabledSongs.includes(songId)) {
-            disabledSongs.push(songId);
+function playFromCache(song, blob) {
+    if (currentCacheBlobUrl) {
+        URL.revokeObjectURL(currentCacheBlobUrl);
+        currentCacheBlobUrl = null;
+    }
+    
+    const blobUrl = URL.createObjectURL(blob);
+    currentCacheBlobUrl = blobUrl;
+    
+    audio.src = blobUrl;
+    audio.crossOrigin = "anonymous";
+    
+    audio.play().then(() => {
+        document.querySelector(".icon.play").classList.add("playing");
+    }).catch(e => {
+        console.error("Play error from cache:", e);
+        if (beatVisualizer) beatVisualizer.stop();
+        if (navigator.onLine) {
+            downloadAndPlay(song);
+        }
+    });
+}
+
+async function downloadAndPlay(song) {
+    now.innerText = `Loading "${song.title}"...`;
+    
+    try {
+        const filename = song.file.split('/').pop();
+        const rawUrl = `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(filename)}`;
+        
+        console.log(`🌐 Fetching from raw URL: ${rawUrl}`);
+        
+        const response = await fetch(rawUrl, {
+            mode: 'cors',
+            credentials: 'omit'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
+        
+        const cacheResponse = new Response(blob, {
+            status: 200,
+            statusText: 'OK',
+            headers: {
+                'Content-Type': response.headers.get('Content-Type') || 'audio/mpeg'
+            }
+        });
+        
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(song.file, cacheResponse);
+        song.cached = true;
+        updateCachedSongsUI(false);
+        
+        if (currentCacheBlobUrl) {
+            URL.revokeObjectURL(currentCacheBlobUrl);
+            currentCacheBlobUrl = null;
+        }
+        
+        const blobUrl = URL.createObjectURL(blob);
+        currentCacheBlobUrl = blobUrl;
+        
+        audio.src = blobUrl;
+        audio.crossOrigin = "anonymous";
+        
+        audio.play().then(() => {
+            document.querySelector(".icon.play").classList.add("playing");
+            now.innerText = `${song.title} • ${song.artist}`;
+        }).catch(e => {
+            console.error("Play error after caching:", e);
+            if (beatVisualizer) beatVisualizer.stop();
+            tryFallbackPlay(song);
+        });
+        
+    } catch (error) {
+        console.error("Download error:", error);
+        tryFallbackPlay(song);
+    }
+}
+
+function tryFallbackPlay(song) {
+    const filename = song.file.split('/').pop();
+    const fallbackUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
+    
+    console.log(`🔄 Trying fallback URL: ${fallbackUrl}`);
+    
+    audio.src = fallbackUrl;
+    audio.crossOrigin = "anonymous";
+    audio.load();
+    
+    audio.play().then(() => {
+        document.querySelector(".icon.play").classList.add("playing");
+        now.innerText = `${song.title} • ${song.artist}`;
+    }).catch(e => {
+        console.error("Fallback play error:", e);
+        alert("Could not play this song. Please try again later.");
+        now.innerText = `${song.title} • ${song.artist}`;
+    });
+}
+
+function toggle() {
+    if (audio.paused) {
+        if (!audio.src && currentSongs.length > 0) {
+            play(0);
+        } else {
+            audio.play();
+            document.querySelector(".icon.play").classList.add("playing");
+            addPlayingGifToCover();
+            
+            if (beatVisualizer && beatVisualizer.isInitialized) {
+                beatVisualizer.start();
+            }
         }
     } else {
-        disabledSongs = disabledSongs.filter(id => id !== songId);
+        audio.pause();
+        document.querySelector(".icon.play").classList.remove("playing");
+        removePlayingGifFromCover();
+        
+        if (beatVisualizer) {
+            beatVisualizer.stop();
+        }
+    }
+}
+
+function next() {
+    if (!currentSongs || currentSongs.length === 0) return false;
+    
+    let nextIndex;
+    
+    if (shuffle) {
+        const available = currentSongs.filter((s, i) => !s.disabled && i !== index);
+        if (available.length === 0) return false;
+        const randomSong = available[Math.floor(Math.random() * available.length)];
+        nextIndex = currentSongs.findIndex(s => s.id === randomSong.id);
+    } else {
+        nextIndex = (index + 1) % currentSongs.length;
+        let tries = 0;
+        while (currentSongs[nextIndex].disabled && tries < currentSongs.length) {
+            nextIndex = (nextIndex + 1) % currentSongs.length;
+            tries++;
+        }
     }
     
-    localStorage.setItem("disabledSongs", JSON.stringify(disabledSongs));
-    
-    const song = songs.find(s => s.id === songId);
-    if (song) {
-        song.disabled = isDisabled;
-        saveSongsToCache();
+    if (nextIndex >= 0 && nextIndex < currentSongs.length && !currentSongs[nextIndex].disabled) {
+        play(nextIndex);
+        return true;
     }
+    
+    return false;
+}
+
+function prev() {
+    if (!currentSongs || currentSongs.length === 0) return false;
+    
+    let prevIndex = (index - 1 + currentSongs.length) % currentSongs.length;
+    let tries = 0;
+    while (currentSongs[prevIndex].disabled && tries < currentSongs.length) {
+        prevIndex = (prevIndex - 1 + currentSongs.length) % currentSongs.length;
+        tries++;
+    }
+    
+    if (prevIndex >= 0 && prevIndex < currentSongs.length && !currentSongs[prevIndex].disabled) {
+        play(prevIndex);
+        return true;
+    }
+    
+    return false;
+}
+
+function toggleShuffle() {
+    shuffle = !shuffle;
+    document.querySelector(".icon.shuffle").classList.toggle("active", shuffle);
+    localStorage.setItem("shuffle", JSON.stringify(shuffle));
+}
+
+function toggleAutoplay() {
+    autoplay = !autoplay;
+    document.querySelector(".icon.autoplay").classList.toggle("active", autoplay);
+    localStorage.setItem("autoplay", JSON.stringify(autoplay));
 }
 
 /* ========= UI UPDATE FUNCTIONS ========= */
@@ -1171,246 +1161,409 @@ function updateCachedSongsUI(shouldScroll = false) {
     }
 }
 
+/* ========= RENDER SONGS ========= */
 function renderSongs(arr, shouldScroll = false) {
     if (!arr || arr.length === 0) {
         list.innerHTML = `
             <div class="empty">
                 <p>No songs found</p>
+                ${searchQuery ? `<p>Try a different search term</p>` : ''}
+                ${selectedArtist ? `<button onclick="loadArtists()" class="scan-btn">Back to Artists</button>` : ''}
                 <button onclick="rescanSongs()" class="scan-btn">Try Scanning Again</button>
             </div>`;
         return;
     }
     
-    list.innerHTML = "";
-
+    let html = '';
+    
+    // Add back button if viewing an artist
+    if (selectedArtist) {
+        html += `
+            <div class="back-to-artists" onclick="loadArtists()" style="cursor:pointer; padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:12px; margin-bottom:15px; display:inline-block; border:1px solid rgba(167,139,250,0.15); transition:all 0.2s ease;">
+                ← Back to Artists
+            </div>
+        `;
+    }
+    
+    // Add artist header if viewing an artist
+    if (selectedArtist) {
+        const artistSongs = songs.filter(s => s.artist === selectedArtist);
+        html += `
+            <div class="artist-detail-header">
+                <div class="artist-detail-avatar" style="background: linear-gradient(135deg, #7c3aed, #5b21b6);">
+                    ${selectedArtist.split(' ').map(w => w[0]).join('').toUpperCase().substring(0, 3)}
+                </div>
+                <div class="artist-detail-info">
+                    <div class="artist-name">${escapeHTML(selectedArtist)}</div>
+                    <div class="artist-song-count">${artistSongs.length} songs</div>
+                    <button class="artist-play-all" onclick="playArtist('${escapeString(selectedArtist)}')">▶ Play All</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Add songs
+    html += `<div class="songs-list">`;
+    
     arr.forEach(function (s) {
-        const row = document.createElement("div");
-        row.className = "song" + (s.disabled ? " disabled" : "");
-        row.dataset.id = s.id;
-
-        const thumb = document.createElement("div");
-        thumb.className = "thumb";
-        thumb.style.backgroundImage = `url("${s.cover}")`;
+        const isDisabled = s.disabled ? ' disabled' : '';
+        const isLiked = s.liked ? ' liked' : '';
+        const isCached = s.cached && cachingEnabled;
+        const songId = s.id;
         
-        if (s.cached && cachingEnabled) {
-            const offlineBadge = document.createElement("div");
-            offlineBadge.className = "offline-badge";
-            offlineBadge.title = "Available offline";
-            offlineBadge.innerHTML = "📥";
-            thumb.appendChild(offlineBadge);
-        }
-
-        const info = document.createElement("div");
-        info.className = "songInfo";
-        
-        const titleDiv = document.createElement("div");
-        titleDiv.className = "songTitle";
-        titleDiv.textContent = s.title;
-        
-        if (s.cached && cachingEnabled) {
-            const offlineIndicator = document.createElement("span");
-            offlineIndicator.className = "offline-indicator";
-            offlineIndicator.title = "Available offline";
-            offlineIndicator.innerHTML = " 📥";
-            titleDiv.appendChild(offlineIndicator);
-        }
-        
-        const metaDiv = document.createElement("div");
-        metaDiv.className = "songMeta";
-        metaDiv.textContent = `${s.artist} • ${s.album} • ${formatTime(s.duration)}`;
-        
-        info.appendChild(titleDiv);
-        info.appendChild(metaDiv);
-
-        const toggle = document.createElement("label");
-        toggle.className = "toggle-switch";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = !s.disabled;
-        checkbox.onchange = function (e) {
-            const newDisabledState = !e.target.checked;
-            s.disabled = newDisabledState;
-            saveToggleState(s.id, newDisabledState);
-            
-            if (newDisabledState) {
-                row.classList.add('disabled');
-            } else {
-                row.classList.remove('disabled');
+        html += `
+            <div class="song${isDisabled}" data-id="${songId}">
+                <div class="thumb" style="background-image: url('${s.cover}')">
+                    ${isCached ? '<div class="offline-badge" title="Available offline">📥</div>' : ''}
+                </div>
+                <div class="songInfo">
+                    <div class="songTitle">
+                        ${searchQuery && s.title.toLowerCase().includes(searchQuery) ? highlightText(escapeHTML(s.title), searchQuery) : escapeHTML(s.title)}
+                        ${isCached ? '<span class="offline-indicator" title="Available offline"> 📥</span>' : ''}
+                    </div>
+                    <div class="songMeta">
+                        ${searchQuery ? highlightText(`${escapeHTML(s.artist)} • ${escapeHTML(s.album)} • ${formatTime(s.duration)}`, searchQuery) : `${escapeHTML(s.artist)} • ${escapeHTML(s.album)} • ${formatTime(s.duration)}`}
+                    </div>
+                </div>
+                <div class="songControls">
+                    <button class="likeBtn${isLiked}" onclick="event.stopPropagation(); toggleSongLike(${songId});"></button>
+                    <button class="addBtn" onclick="event.stopPropagation(); showAddToPlaylistModal(${songId});">+</button>
+                    <label class="toggle-switch" onclick="event.stopPropagation();">
+                        <input type="checkbox" ${s.disabled ? '' : 'checked'} onchange="
+                            const newState = !this.checked;
+                            s.disabled = newState;
+                            saveToggleState(${songId}, newState);
+                            const songRow = this.closest('.song');
+                            if (newState) {
+                                songRow.classList.add('disabled');
+                            } else {
+                                songRow.classList.remove('disabled');
+                            }
+                        ">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `</div>`;
+    
+    list.innerHTML = html;
+    
+    // Add click event listeners to each song after rendering
+    document.querySelectorAll('.song').forEach(function(songEl) {
+        songEl.addEventListener('click', function(e) {
+            // Don't trigger if click was on a button or toggle
+            if (e.target.closest('button') || e.target.closest('.toggle-switch') || e.target.closest('.toggle-slider') || e.target.closest('input')) {
+                return;
             }
-        };
-
-        const slider = document.createElement("span");
-        slider.className = "toggle-slider";
-
-        toggle.appendChild(checkbox);
-        toggle.appendChild(slider);
-
-        const addBtn = document.createElement("button");
-        addBtn.className = "addBtn";
-        addBtn.innerHTML = "+";
-        addBtn.title = "Add to playlist";
-        addBtn.onclick = function(e) {
-            e.stopPropagation();
-            showAddToPlaylistModal(s.id);
-        };
-
-        const likeBtn = document.createElement("button");
-        likeBtn.className = "likeBtn";
-        likeBtn.title = "Like song";
-        likeBtn.onclick = function(e) {
-            e.stopPropagation();
-            toggleSongLike(s.id);
-        };
-        
-        const originalSong = songs.find(original => original.id === s.id);
-        likeBtn.classList.toggle('liked', originalSong ? originalSong.liked : s.liked);
-
-        const controlsDiv = document.createElement("div");
-        controlsDiv.className = "songControls";
-        controlsDiv.appendChild(likeBtn);
-        controlsDiv.appendChild(addBtn);
-        controlsDiv.appendChild(toggle);
-
-        row.appendChild(thumb);
-        row.appendChild(info);
-        row.appendChild(controlsDiv);
-
-        row.onclick = function () {
-            if (!s.disabled) {
-                const playIndex = currentSongs.findIndex(song => song.id === s.id);
-                if (playIndex !== -1) play(playIndex);
+            const songId = parseInt(this.dataset.id);
+            const song = songs.find(s => s.id === songId);
+            if (song && !song.disabled) {
+                const playIndex = currentSongs.findIndex(s => s.id === songId);
+                if (playIndex !== -1) {
+                    play(playIndex);
+                }
             }
-        };
-
-        list.appendChild(row);
+        });
     });
     
     updatePlayingStateInList(shouldScroll);
 }
 
-/* ========= AUDIO EVENT HANDLERS ========= */
-audio.onended = function () {
-    console.log("Song ended. Autoplay state:", autoplay);
-    removePlayingGifFromCover();
+/* ========= ARTISTS FUNCTIONS ========= */
+function loadArtists() {
+    selectedArtist = null;
+    currentPlaylist = "artists";
+    if (searchQuery) clearSearch();
     
-    if (beatVisualizer) {
-        beatVisualizer.stop();
-    }
-    
-    // If caching is OFF, remove the song from cache when it ends
-    if (!cachingEnabled && currentSongId !== null) {
-        const currentSong = songs.find(s => s.id === currentSongId);
-        if (currentSong && currentSong.cached) {
-            setTimeout(() => {
-                removeFromCache(currentSong);
-            }, 1000);
+    const artistMap = new Map();
+    songs.forEach(song => {
+        if (!artistMap.has(song.artist)) {
+            artistMap.set(song.artist, []);
         }
+        artistMap.get(song.artist).push(song);
+    });
+    
+    const sortedArtists = Array.from(artistMap.entries()).sort((a, b) => 
+        a[0].localeCompare(b[0])
+    );
+    
+    viewTitle.innerText = `Artists (${sortedArtists.length})`;
+    renderArtists(sortedArtists);
+    renderPlaylists();
+}
+
+function renderArtists(artists) {
+    if (!artists || artists.length === 0) {
+        list.innerHTML = `
+            <div class="empty">
+                <p>No artists found</p>
+            </div>`;
+        return;
     }
     
-    if (autoplay) {
-        console.log("Autoplay enabled, playing next song...");
-        setTimeout(() => {
-            const success = next();
-            if (!success) {
-                const firstEnabledIndex = currentSongs.findIndex(s => !s.disabled);
-                if (firstEnabledIndex !== -1) {
-                    console.log("Looping back to first enabled song at index:", firstEnabledIndex);
-                    play(firstEnabledIndex);
-                } else {
-                    console.log("No enabled songs available");
-                }
-            }
-        }, 800);
-    } else {
-        console.log("Autoplay disabled, stopping playback");
-    }
-};
+    let html = '<div class="artists-grid">';
+    
+    artists.forEach(([artist, songsList]) => {
+        const initials = artist
+            .split(' ')
+            .filter(word => word.length > 0)
+            .map(word => word[0])
+            .join('')
+            .toUpperCase()
+            .substring(0, 3);
+        
+        const colors = [
+            ['#7c3aed', '#5b21b6'],
+            ['#0ea5e9', '#0284c7'],
+            ['#10b981', '#059669'],
+            ['#f59e0b', '#d97706'],
+            ['#ef4444', '#dc2626'],
+            ['#ec4899', '#db2777'],
+            ['#8b5cf6', '#7c3aed'],
+            ['#14b8a6', '#0d9488'],
+            ['#f97316', '#ea580c'],
+            ['#6366f1', '#4f46e5']
+        ];
+        const colorSet = colors[artist.length % colors.length];
+        
+        html += `
+            <div class="artist-card" onclick="selectArtist('${escapeString(artist)}')">
+                <div class="artist-avatar" style="background: linear-gradient(135deg, ${colorSet[0]}, ${colorSet[1]});">
+                    ${initials}
+                </div>
+                <div class="artist-name">${escapeHTML(artist)}</div>
+                <div class="artist-song-count">${songsList.length} song${songsList.length > 1 ? 's' : ''}</div>
+                <div class="artist-play-icon" onclick="event.stopPropagation(); playArtist('${escapeString(artist)}')">▶</div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    list.innerHTML = html;
+}
 
-audio.ontimeupdate = function () {
-    if (audio.duration) {
-        const progressValue = (audio.currentTime / audio.duration) * 100 || 0;
-        progress.value = progressValue;
-        progress.style.setProperty('--progress', `${progressValue}%`);
-        timeText.innerText = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
-    }
-};
+function selectArtist(artistName) {
+    selectedArtist = artistName;
+    const artistSongs = songs.filter(s => s.artist === artistName);
+    artistSongs.sort((a, b) => a.title.localeCompare(b.title));
+    
+    currentSongs = artistSongs;
+    currentPlaylist = `artist_${artistName}`;
+    
+    viewTitle.innerText = `${artistName} (${currentSongs.length})`;
+    renderSongs(currentSongs, false);
+    renderPlaylists();
+}
 
-audio.onvolumechange = function() {
-    const volumeValue = audio.volume * 100;
-    volume.value = audio.volume;
-    volume.style.setProperty('--volume', `${volumeValue}%`);
-};
-
-audio.onloadstart = function() {
-    if (currentSongs[index]) {
-        now.innerText = `Loading "${currentSongs[index].title}"...`;
-    } else {
-        now.innerText = "Loading...";
-    }
-};
-
-audio.oncanplay = function() {
-    if (currentSongs[index]) {
-        now.innerText = `${currentSongs[index].title} • ${currentSongs[index].artist}`;
-    }
-};
-
-audio.onerror = function() {
-    console.error("Audio error occurred");
-};
-
-progress.oninput = function () {
-    if (audio.duration) {
-        const newTime = (progress.value / 100) * audio.duration;
-        audio.currentTime = newTime;
-        progress.style.setProperty('--progress', `${progress.value}%`);
-    }
-};
-
-volume.oninput = function () {
-    audio.volume = volume.value;
-    volume.style.setProperty('--volume', `${volume.value * 100}%`);
-};
+function playArtist(artistName) {
+    const artistSongs = songs.filter(s => s.artist === artistName && !s.disabled);
+    if (artistSongs.length === 0) return;
+    
+    artistSongs.sort((a, b) => a.title.localeCompare(b.title));
+    
+    currentSongs = artistSongs;
+    currentPlaylist = `artist_${artistName}`;
+    selectedArtist = artistName;
+    
+    play(0);
+}
 
 /* ========= UI FUNCTIONS ========= */
-sortSelect.onchange = function () {
-    const v = sortSelect.value;
-    const sorted = [...currentSongs];
-
-    if (v === "artist") {
-        sorted.sort((a, b) => a.artist.localeCompare(b.artist));
-    } else if (v === "album") {
-        sorted.sort((a, b) => (a.album || "").localeCompare(b.album || ""));
-    }
-
-    currentSongs = sorted;
-    renderSongs(currentSongs, false);
-    
-    if (currentSongId !== null) {
-        const newIndex = currentSongs.findIndex(song => song.id === currentSongId);
-        if (newIndex !== -1) {
-            index = newIndex;
-        }
-    }
-};
-
 function loadAll() {
     currentSongs = songs;
     currentPlaylist = null;
+    selectedArtist = null;
+    if (searchQuery) {
+        clearSearch();
+    }
     updateCachedSongsUI(false);
     renderSongs(currentSongs, false);
-    document.querySelectorAll("#playlists li").forEach(li => li.classList.remove("active"));
-    document.querySelectorAll("#playlists li")[0].classList.add("active");
+    renderPlaylists();
+    viewTitle.innerText = `All Songs (${songs.length})`;
 }
 
 function loadLiked() {
     currentSongs = songs.filter(s => s.liked);
     currentPlaylist = "liked";
+    selectedArtist = null;
+    if (searchQuery) {
+        clearSearch();
+    }
     viewTitle.innerText = `Liked Songs (${currentSongs.length})`;
     renderSongs(currentSongs, false);
-    document.querySelectorAll("#playlists li").forEach(li => li.classList.remove("active"));
-    document.querySelectorAll("#playlists li")[1].classList.add("active");
+    renderPlaylists();
+}
+
+function loadPlaylist(name) {
+    if (playlists[name]) {
+        currentSongs = songs.filter(s => playlists[name].includes(s.id));
+        currentPlaylist = name;
+        selectedArtist = null;
+        if (searchQuery) {
+            clearSearch();
+        }
+        viewTitle.innerText = `${name} (${currentSongs.length})`;
+        renderSongs(currentSongs, false);
+        renderPlaylists();
+    }
+}
+
+function renderPlaylists() {
+    const playlistsList = document.getElementById("playlists");
+    playlistsList.innerHTML = '';
+    
+    const allLi = document.createElement("li");
+    if (currentPlaylist === null) allLi.className = "active";
+    allLi.onclick = function() { if (searchQuery) clearSearch(); loadAll(); };
+    allLi.textContent = "All Songs";
+    playlistsList.appendChild(allLi);
+    
+    const artistsLi = document.createElement("li");
+    if (currentPlaylist === "artists") artistsLi.className = "active";
+    artistsLi.onclick = function() { if (searchQuery) clearSearch(); loadArtists(); };
+    artistsLi.textContent = "🎤 Artists";
+    playlistsList.appendChild(artistsLi);
+    
+    const likedLi = document.createElement("li");
+    if (currentPlaylist === "liked") likedLi.className = "active";
+    likedLi.onclick = function() { if (searchQuery) clearSearch(); loadLiked(); };
+    likedLi.textContent = "❤️ Liked";
+    playlistsList.appendChild(likedLi);
+    
+    for (const name in playlists) {
+        const li = document.createElement("li");
+        li.className = "playlist-item";
+        if (currentPlaylist === name) li.classList.add("active");
+        li.onclick = function() { if (searchQuery) clearSearch(); loadPlaylist(name); };
+        
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "playlist-name";
+        nameSpan.textContent = name;
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "delete-playlist-btn";
+        deleteBtn.title = "Delete playlist";
+        deleteBtn.innerHTML = "🗑️";
+        deleteBtn.onclick = function(e) {
+            e.stopPropagation();
+            showDeletePlaylistModal(name);
+        };
+        
+        li.appendChild(nameSpan);
+        li.appendChild(deleteBtn);
+        playlistsList.appendChild(li);
+    }
+}
+
+/* ========= SEARCH FUNCTIONS ========= */
+function searchSongs() {
+    if (!searchInput) return;
+    
+    searchQuery = searchInput.value.trim().toLowerCase();
+    
+    if (searchQuery === "") {
+        filteredSongs = [];
+        if (clearSearchBtn) clearSearchBtn.style.display = "none";
+        renderCurrentView();
+        return;
+    }
+    
+    if (clearSearchBtn) clearSearchBtn.style.display = "block";
+    
+    filteredSongs = currentSongs.filter(song => {
+        return song.title.toLowerCase().includes(searchQuery) ||
+               song.artist.toLowerCase().includes(searchQuery) ||
+               song.album.toLowerCase().includes(searchQuery);
+    });
+    
+    if (filteredSongs.length > 0) {
+        viewTitle.innerText = `Search Results (${filteredSongs.length})`;
+    } else {
+        viewTitle.innerText = `No results for "${searchQuery}"`;
+    }
+    
+    renderSongs(filteredSongs, false);
+    updatePlayingStateInList(false);
+}
+
+function clearSearch() {
+    if (searchInput) searchInput.value = "";
+    searchQuery = "";
+    filteredSongs = [];
+    if (clearSearchBtn) clearSearchBtn.style.display = "none";
+    renderCurrentView();
+}
+
+function renderCurrentView() {
+    if (currentPlaylist === null) {
+        loadAll();
+    } else if (currentPlaylist === "liked") {
+        loadLiked();
+    } else if (currentPlaylist === "artists") {
+        loadArtists();
+    } else if (currentPlaylist && currentPlaylist.startsWith("artist_")) {
+        const artistName = currentPlaylist.replace("artist_", "");
+        selectedArtist = artistName;
+        const artistSongs = songs.filter(s => s.artist === artistName);
+        artistSongs.sort((a, b) => a.title.localeCompare(b.title));
+        currentSongs = artistSongs;
+        viewTitle.innerText = `${artistName} (${currentSongs.length})`;
+        renderSongs(currentSongs, false);
+    } else {
+        loadPlaylist(currentPlaylist);
+    }
+}
+
+/* ========= HELPER FUNCTIONS ========= */
+function formatTime(sec) {
+    if (!sec) return "0:00";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m + ":" + (s < 10 ? "0" + s : s);
+}
+
+function updateLikeButton() {
+    if (currentSongs[index]) {
+        const song = currentSongs[index];
+        const originalSong = songs.find(s => s.id === song.id);
+        if (originalSong && originalSong.liked) {
+            playerHeartBtn.classList.add('liked');
+        } else {
+            playerHeartBtn.classList.remove('liked');
+        }
+    }
+}
+
+function updateProgressBars() {
+    if (audio.duration) {
+        const progressPercent = (audio.currentTime / audio.duration) * 100;
+        progress.style.setProperty('--progress', `${progressPercent}%`);
+    }
+    
+    const volumePercent = audio.volume * 100;
+    volume.style.setProperty('--volume', `${volumePercent}%`);
+}
+
+/* ========= TOGGLE STATE SAVING ========= */
+function saveToggleState(songId, isDisabled) {
+    if (isDisabled) {
+        if (!disabledSongs.includes(songId)) {
+            disabledSongs.push(songId);
+        }
+    } else {
+        disabledSongs = disabledSongs.filter(id => id !== songId);
+    }
+    
+    localStorage.setItem("disabledSongs", JSON.stringify(disabledSongs));
+    
+    const song = songs.find(s => s.id === songId);
+    if (song) {
+        song.disabled = isDisabled;
+        saveSongsToCache();
+    }
 }
 
 function toggleLike() {
@@ -1468,6 +1621,7 @@ function toggleSongLike(songId) {
     }
 }
 
+/* ========= PLAYLIST FUNCTIONS ========= */
 function newPlaylist() {
     document.getElementById("playlistModal").style.display = "flex";
     document.getElementById("playlistName").focus();
@@ -1485,52 +1639,6 @@ function createPlaylist() {
         }
     }
     closeModal();
-}
-
-function renderPlaylists() {
-    const playlistsList = document.getElementById("playlists");
-    while (playlistsList.children.length > 2) {
-        playlistsList.removeChild(playlistsList.lastChild);
-    }
-    
-    for (const name in playlists) {
-        const li = document.createElement("li");
-        li.className = "playlist-item";
-        li.onclick = function() { loadPlaylist(name); };
-        
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "playlist-name";
-        nameSpan.textContent = name;
-        
-        const deleteBtn = document.createElement("button");
-        deleteBtn.className = "delete-playlist-btn";
-        deleteBtn.title = "Delete playlist";
-        deleteBtn.innerHTML = "🗑️";
-        deleteBtn.onclick = function(e) {
-            e.stopPropagation();
-            showDeletePlaylistModal(name);
-        };
-        
-        li.appendChild(nameSpan);
-        li.appendChild(deleteBtn);
-        playlistsList.appendChild(li);
-    }
-}
-
-function loadPlaylist(name) {
-    if (playlists[name]) {
-        currentSongs = songs.filter(s => playlists[name].includes(s.id));
-        currentPlaylist = name;
-        viewTitle.innerText = `${name} (${currentSongs.length})`;
-        renderSongs(currentSongs, false);
-        
-        document.querySelectorAll("#playlists li").forEach(li => li.classList.remove("active"));
-        document.querySelectorAll("#playlists li").forEach(li => {
-            if (li.querySelector('.playlist-name') && li.querySelector('.playlist-name').textContent === name) {
-                li.classList.add("active");
-            }
-        });
-    }
 }
 
 function showDeletePlaylistModal(playlistName) {
@@ -1627,7 +1735,7 @@ iframe{border:0;width:100%;height:100%}
     }
 }
 
-/* ========= BEAT VISUALIZER HELPER FUNCTIONS ========= */
+/* ========= BEAT VISUALIZER HELPER ========= */
 function initBeatVisualizer() {
     const audioElement = document.getElementById('audio');
     beatVisualizer = new BeatVisualizer(audioElement);
@@ -1652,6 +1760,110 @@ function updateConnectionStatus() {
         connectionStatus.innerHTML = '📶 Offline';
     }
 }
+
+/* ========= AUDIO EVENT HANDLERS ========= */
+audio.onended = function () {
+    console.log("Song ended. Autoplay state:", autoplay);
+    removePlayingGifFromCover();
+    
+    if (beatVisualizer) {
+        beatVisualizer.stop();
+    }
+    
+    if (!cachingEnabled && currentSongId !== null) {
+        const currentSong = songs.find(s => s.id === currentSongId);
+        if (currentSong && currentSong.cached) {
+            setTimeout(() => {
+                removeFromCache(currentSong);
+            }, 1000);
+        }
+    }
+    
+    if (autoplay) {
+        console.log("Autoplay enabled, playing next song...");
+        setTimeout(() => {
+            const success = next();
+            if (!success) {
+                const firstEnabledIndex = currentSongs.findIndex(s => !s.disabled);
+                if (firstEnabledIndex !== -1) {
+                    console.log("Looping back to first enabled song at index:", firstEnabledIndex);
+                    play(firstEnabledIndex);
+                } else {
+                    console.log("No enabled songs available");
+                }
+            }
+        }, 800);
+    } else {
+        console.log("Autoplay disabled, stopping playback");
+    }
+};
+
+audio.ontimeupdate = function () {
+    if (audio.duration) {
+        const progressValue = (audio.currentTime / audio.duration) * 100 || 0;
+        progress.value = progressValue;
+        progress.style.setProperty('--progress', `${progressValue}%`);
+        timeText.innerText = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+    }
+};
+
+audio.onvolumechange = function() {
+    const volumeValue = audio.volume * 100;
+    volume.value = audio.volume;
+    volume.style.setProperty('--volume', `${volumeValue}%`);
+};
+
+audio.onloadstart = function() {
+    if (currentSongs[index]) {
+        now.innerText = `Loading "${currentSongs[index].title}"...`;
+    } else {
+        now.innerText = "Loading...";
+    }
+};
+
+audio.oncanplay = function() {
+    if (currentSongs[index]) {
+        now.innerText = `${currentSongs[index].title} • ${currentSongs[index].artist}`;
+    }
+};
+
+audio.onerror = function() {
+    console.error("Audio error occurred");
+};
+
+progress.oninput = function () {
+    if (audio.duration) {
+        const newTime = (progress.value / 100) * audio.duration;
+        audio.currentTime = newTime;
+        progress.style.setProperty('--progress', `${progress.value}%`);
+    }
+};
+
+volume.oninput = function () {
+    audio.volume = volume.value;
+    volume.style.setProperty('--volume', `${volume.value * 100}%`);
+};
+
+sortSelect.onchange = function () {
+    const v = sortSelect.value;
+    const sorted = [...currentSongs];
+
+    if (v === "artist") {
+        sorted.sort((a, b) => a.artist.localeCompare(b.artist));
+    } else if (v === "album") {
+        sorted.sort((a, b) => (a.album || "").localeCompare(b.album || ""));
+    }
+
+    currentSongs = sorted;
+    renderSongs(currentSongs, false);
+    
+    if (currentSongId !== null) {
+        const newIndex = currentSongs.findIndex(song => song.id === currentSongId);
+        if (newIndex !== -1) {
+            index = newIndex;
+        }
+    }
+};
 
 /* ========= INITIALIZATION ========= */
 window.onload = async function() {
