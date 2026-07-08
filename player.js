@@ -1,6 +1,8 @@
-/*hoi*/
+/*hoi2*/
 /* ========= CONFIGURATION ========= */
-const MUSIC_FOLDER = "https://2321564369.github.io/galaxy-music/music/";
+// Use jsDelivr for everything (no CORS, no rate limits)
+const JS_DELIVR_BASE = "https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main";
+const MUSIC_FOLDER = `${JS_DELIVR_BASE}/music/`;
 const GITHUB_API_URL = "https://api.github.com/repos/2321564369/galaxy-music/contents/music";
 const CACHE_NAME = 'galaxy-music-cache-v1';
 
@@ -15,7 +17,7 @@ var searchQuery = "";
 var index = 0;
 var shuffle = false;
 var autoplay = true;
-var cachingEnabled = true;
+var cachingEnabled = false; // Disabled by default to avoid rate limits
 var currentSongId = null;
 var currentCacheBlobUrl = null;
 var liked = JSON.parse(localStorage.getItem("likedSongs")) || [];
@@ -27,6 +29,7 @@ var playlistToDelete = null;
 var isCaching = false;
 var cacheProgress = 0;
 var totalToCache = 0;
+var isPlaying = false; // Prevent multiple songs playing at once
 
 /* ========= ELEMENTS ========= */
 var audio = document.getElementById("audio");
@@ -72,6 +75,10 @@ function highlightText(text, query) {
     if (!query || !text) return text;
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
     return text.replace(regex, '<span class="search-highlight">$1</span>');
+}
+
+function getMusicUrl(filename) {
+    return `${JS_DELIVR_BASE}/music/${encodeURIComponent(filename)}`;
 }
 
 /* ========= BEAT VISUALIZER ========= */
@@ -256,6 +263,8 @@ class BeatVisualizer {
 
 /* ========= CACHING FUNCTIONS ========= */
 async function cacheSingleSong(song) {
+    if (!cachingEnabled) return false;
+    
     try {
         const cache = await caches.open(CACHE_NAME);
         if (!cache) return false;
@@ -267,9 +276,11 @@ async function cacheSingleSong(song) {
         }
         
         const filename = song.file.split('/').pop();
-        const rawUrl = `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(filename)}`;
+        const audioUrl = getMusicUrl(filename);
         
-        const response = await fetch(rawUrl, {
+        console.log(`📥 Caching from: ${audioUrl}`);
+        
+        const response = await fetch(audioUrl, {
             mode: 'cors',
             credentials: 'omit'
         });
@@ -289,27 +300,6 @@ async function cacheSingleSong(song) {
             return true;
         }
         
-        const fallbackUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
-        const fallbackResponse = await fetch(fallbackUrl, {
-            mode: 'cors',
-            credentials: 'omit'
-        });
-        
-        if (fallbackResponse.ok) {
-            const blob = await fallbackResponse.blob();
-            const cacheResponse = new Response(blob, {
-                status: 200,
-                statusText: 'OK',
-                headers: {
-                    'Content-Type': fallbackResponse.headers.get('Content-Type') || 'audio/mpeg'
-                }
-            });
-            await cache.put(song.file, cacheResponse);
-            song.cached = true;
-            updateCachedSongsUI(false);
-            return true;
-        }
-        
         return false;
     } catch (error) {
         console.error(`Failed to cache ${song.title}:`, error);
@@ -318,6 +308,8 @@ async function cacheSingleSong(song) {
 }
 
 async function getCachedSong(song) {
+    if (!cachingEnabled) return null;
+    
     try {
         const cache = await caches.open(CACHE_NAME);
         if (!cache) return null;
@@ -352,12 +344,12 @@ async function cacheAllSongsBackground(songList) {
     if (isCaching || songList.length === 0 || !cachingEnabled) return;
     
     isCaching = true;
-    totalToCache = songList.length;
+    totalToCache = Math.min(songList.length, 50); // Only cache 50 max
     cacheProgress = 0;
     
     console.log(`Starting background cache of ${totalToCache} songs...`);
     
-    for (let i = 0; i < songList.length; i++) {
+    for (let i = 0; i < totalToCache; i++) {
         if (!isCaching) break;
         if (!cachingEnabled) {
             console.log('Caching stopped (disabled by user)');
@@ -377,7 +369,8 @@ async function cacheAllSongsBackground(songList) {
             }
         }
         
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Delay to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
     
     isCaching = false;
@@ -412,22 +405,13 @@ function toggleCaching() {
     console.log(`💾 Caching ${cachingEnabled ? 'enabled' : 'disabled'}`);
     
     if (cachingEnabled) {
-        viewTitle.innerText = "Caching all songs...";
+        viewTitle.innerText = "Caching songs...";
         setTimeout(() => {
             cacheAllSongsBackground(songs);
         }, 500);
     } else {
-        if (currentSongId !== null) {
-            const currentSong = songs.find(s => s.id === currentSongId);
-            clearCache().then(() => {
-                if (currentSong && currentSong.cached) {
-                    cacheSingleSong(currentSong);
-                }
-            });
-        } else {
-            clearCache();
-        }
-        viewTitle.innerText = "Cache Off - On-Demand Only";
+        clearCache();
+        viewTitle.innerText = "Cache Off - Streaming Only";
     }
     
     updateCachedSongsUI(false);
@@ -436,6 +420,14 @@ function toggleCaching() {
 /* ========= FILENAME PARSING ========= */
 function parseFilename(filename) {
     let name = filename.replace(/\.mp3$/i, '').replace(/_/g, ' ');
+    
+    // Remove duplicate artist names (e.g., "OneRepublic - OneRepublic - Song")
+    if (name.includes(' - ')) {
+        const parts = name.split(' - ');
+        if (parts.length >= 2 && parts[0] === parts[1]) {
+            name = parts.slice(1).join(' - ');
+        }
+    }
     
     let artist = "Unknown Artist";
     let title = name;
@@ -460,6 +452,10 @@ function parseFilename(filename) {
             album = parenMatch[2].trim();
         }
     }
+    
+    // Clean up
+    title = title.replace(/Official (Music )?Video/i, '').replace(/Lyric Video/i, '').replace(/\(Lyrics\)/i, '').trim();
+    title = title.replace(/\s+/g, ' ').trim();
     
     if (artist === "Panic! At The Disco") title = "House of Memories";
     if (artist === "3 Doors Down") title = "Kryptonite";
@@ -653,11 +649,8 @@ async function loadSongsFromList(fileList) {
         const filename = fileList[i];
         
         const { artist, title, album } = parseFilename(filename);
-        const fileUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
+        const fileUrl = getMusicUrl(filename);
         const songCover = await getCoverArt(artist, title, filename);
-        
-        // Check if this song ID is in the disabled list
-        const isDisabled = disabledSongs.includes(i);
         
         const song = {
             id: i,
@@ -666,7 +659,7 @@ async function loadSongsFromList(fileList) {
             album: album,
             file: fileUrl,
             cover: songCover,
-            disabled: isDisabled,
+            disabled: disabledSongs.includes(i),
             liked: liked.includes(i),
             cached: false,
             duration: 0
@@ -722,7 +715,7 @@ async function tryCommonFiles() {
     
     for (const filename of commonFiles) {
         try {
-            const url = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
+            const url = getMusicUrl(filename);
             const response = await fetch(url, { method: 'HEAD' });
             
             if (response.ok) {
@@ -748,6 +741,7 @@ function loadSongDuration(song) {
     return new Promise((resolve) => {
         const audio = new Audio();
         audio.preload = 'metadata';
+        audio.src = song.file;
         
         audio.onloadedmetadata = () => {
             resolve(audio.duration);
@@ -760,8 +754,6 @@ function loadSongDuration(song) {
         setTimeout(() => {
             resolve(180);
         }, 3000);
-        
-        audio.src = song.file;
     });
 }
 
@@ -778,16 +770,18 @@ async function finishLoading(loadedSongs) {
     saveSongsToCache();
     loadAll();
     
+    // Don't auto-cache - let users enable it if they want
     if (cachingEnabled) {
         setTimeout(() => {
             cacheAllSongsBackground(songs);
         }, 500);
     } else {
-        console.log('Background caching disabled - will cache on-demand');
+        console.log('Background caching disabled - streaming only');
     }
     
+    // Auto-play first song after loading
     setTimeout(() => {
-        if (songs.length > 0) {
+        if (songs.length > 0 && !isPlaying) {
             const firstEnabledIndex = songs.findIndex(s => !s.disabled);
             if (firstEnabledIndex !== -1) {
                 play(firstEnabledIndex);
@@ -863,6 +857,9 @@ function shuffleSongsList() {
 /* ========= PLAYBACK FUNCTIONS ========= */
 async function play(i) {
     if (!currentSongs || i < 0 || i >= currentSongs.length) return;
+    if (isPlaying) return; // Prevent multiple plays
+    
+    isPlaying = true;
     
     if (!cachingEnabled && currentSongId !== null && currentSongId !== currentSongs[i].id) {
         const prevSong = songs.find(s => s.id === currentSongId);
@@ -899,6 +896,7 @@ async function play(i) {
     } else {
         alert(`Cannot play "${song.title}" offline. Please connect to the internet first.`);
         if (beatVisualizer) beatVisualizer.stop();
+        isPlaying = false;
     }
 }
 
@@ -916,11 +914,14 @@ function playFromCache(song, blob) {
     
     audio.play().then(() => {
         document.querySelector(".icon.play").classList.add("playing");
+        isPlaying = false;
     }).catch(e => {
         console.error("Play error from cache:", e);
         if (beatVisualizer) beatVisualizer.stop();
         if (navigator.onLine) {
             downloadAndPlay(song);
+        } else {
+            isPlaying = false;
         }
     });
 }
@@ -930,11 +931,11 @@ async function downloadAndPlay(song) {
     
     try {
         const filename = song.file.split('/').pop();
-        const rawUrl = `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(filename)}`;
+        const audioUrl = getMusicUrl(filename);
         
-        console.log(`🌐 Fetching from raw URL: ${rawUrl}`);
+        console.log(`🌐 Fetching from: ${audioUrl}`);
         
-        const response = await fetch(rawUrl, {
+        const response = await fetch(audioUrl, {
             mode: 'cors',
             credentials: 'omit'
         });
@@ -945,18 +946,20 @@ async function downloadAndPlay(song) {
         
         const blob = await response.blob();
         
-        const cacheResponse = new Response(blob, {
-            status: 200,
-            statusText: 'OK',
-            headers: {
-                'Content-Type': response.headers.get('Content-Type') || 'audio/mpeg'
-            }
-        });
-        
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(song.file, cacheResponse);
-        song.cached = true;
-        updateCachedSongsUI(false);
+        // Cache if enabled
+        if (cachingEnabled) {
+            const cache = await caches.open(CACHE_NAME);
+            const cacheResponse = new Response(blob, {
+                status: 200,
+                statusText: 'OK',
+                headers: {
+                    'Content-Type': response.headers.get('Content-Type') || 'audio/mpeg'
+                }
+            });
+            await cache.put(song.file, cacheResponse);
+            song.cached = true;
+            updateCachedSongsUI(false);
+        }
         
         if (currentCacheBlobUrl) {
             URL.revokeObjectURL(currentCacheBlobUrl);
@@ -972,36 +975,20 @@ async function downloadAndPlay(song) {
         audio.play().then(() => {
             document.querySelector(".icon.play").classList.add("playing");
             now.innerText = `${song.title} • ${song.artist}`;
+            isPlaying = false;
         }).catch(e => {
             console.error("Play error after caching:", e);
             if (beatVisualizer) beatVisualizer.stop();
-            tryFallbackPlay(song);
+            isPlaying = false;
+            alert("Could not play this song. Please try again.");
         });
         
     } catch (error) {
         console.error("Download error:", error);
-        tryFallbackPlay(song);
+        alert("Could not load this song. Please try again later.");
+        now.innerText = `${song.title} • ${song.artist}`;
+        isPlaying = false;
     }
-}
-
-function tryFallbackPlay(song) {
-    const filename = song.file.split('/').pop();
-    const fallbackUrl = `https://2321564369.github.io/galaxy-music/music/${encodeURIComponent(filename)}`;
-    
-    console.log(`🔄 Trying fallback URL: ${fallbackUrl}`);
-    
-    audio.src = fallbackUrl;
-    audio.crossOrigin = "anonymous";
-    audio.load();
-    
-    audio.play().then(() => {
-        document.querySelector(".icon.play").classList.add("playing");
-        now.innerText = `${song.title} • ${song.artist}`;
-    }).catch(e => {
-        console.error("Fallback play error:", e);
-        alert("Could not play this song. Please try again later.");
-        now.innerText = `${song.title} • ${song.artist}`;
-    });
 }
 
 function toggle() {
@@ -1147,7 +1134,7 @@ function updateCachedSongsUI(shouldScroll = false) {
     if (currentPlaylist === null) {
         const total = songs.length;
         if (!cachingEnabled) {
-            viewTitle.innerText = `All Songs (${total}) ⚡ On-Demand Only`;
+            viewTitle.innerText = `All Songs (${total}) ⚡ Streaming`;
         } else if (cachedCount === total && total > 0) {
             viewTitle.innerText = `All Songs (${total}) ✅ All Cached`;
         } else if (cachedCount > 0) {
