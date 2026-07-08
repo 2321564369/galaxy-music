@@ -3,47 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <title>Galaxy Music</title>
-  <link rel="stylesheet" href="./style.css?v=55">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main/style.css">
 </head>
 <body>
 
 <div class="galaxy"></div>
 
 <div class="app">
+ <!-- Sidebar -->
+<aside class="sidebar">
+  <h2>🌌 Galaxy Music</h2>
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <h2>🌌 Galaxy Music</h2>
+  <ul id="playlists">
+    <li class="active" onclick="loadAll()">All Songs</li>
+    <li onclick="loadArtists()">🎤 Artists</li>
+    <li onclick="loadLiked()">❤️ Liked</li>
+  </ul>
 
-    <ul id="playlists">
-      <li class="active" onclick="loadAll()">All Songs</li>
-      <li onclick="loadLiked()">❤️ Liked</li>
-    </ul>
-
-    <button class="new-playlist" onclick="newPlaylist()">＋ New Playlist</button>
-    <button class="new-playlist" onclick="sugg()">Suggest Songs</button>
-    <!-- Scan button will be added dynamically -->
-  </aside>
+  <button class="new-playlist" onclick="newPlaylist()">＋ New Playlist</button>
+  <button class="new-playlist" onclick="sugg()">Suggest Songs</button>
+  <!-- Scan button will be added dynamically -->
+</aside>
 
   <!-- Main -->
   <main class="content">
     <div class="topbar">
-  <h1 id="viewTitle">Scanning music...</h1>
-  <div id="connectionStatus" class="connection-status"></div>
-  <div class="controls-group">
-    <select id="sortSelect">
-      <option value="none">Sort</option>
-      <option value="artist">Artist</option>
-      <option value="album">Genre</option>
-    </select>
-    <div class="caching-toggle">
-      <span class="toggle-label">💾 Cache</span>
-      <label class="toggle-switch-mini">
-        <input type="checkbox" id="cachingToggle" checked>
-        <span class="toggle-slider-mini"></span>
-      </label>
+    <h1 id="viewTitle">Scanning music...</h1>
+    <div id="connectionStatus" class="connection-status"></div>
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="🔍 Search songs, artists, albums..." oninput="searchSongs()">
+        <button onclick="clearSearch()" id="clearSearchBtn" style="display:none;">✕</button>
     </div>
-  </div>
+    <div class="controls-group">
+        <select id="sortSelect">
+            <option value="none">Sort</option>
+            <option value="artist">Artist</option>
+            <option value="album">Genre</option>
+        </select>
+        <div class="caching-toggle">
+            <span class="toggle-label">💾 Cache</span>
+            <label class="toggle-switch-mini">
+                <input type="checkbox" id="cachingToggle" checked>
+                <span class="toggle-slider-mini"></span>
+            </label>
+        </div>
+    </div>
 </div>
 
     <div id="songList" class="songs"></div>
@@ -118,6 +122,6 @@
   </div>
 </div>
 
-<script src="./player.js?v=56"></script>
+<script src="https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main/player.js"></script>
 </body>
 </html>
