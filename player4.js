@@ -555,6 +555,7 @@ function findCoverForSong(mp3Filename) {
 async function getCoverArt(artist, title, filename) {
     const coverFile = findCoverForSong(filename);
     if (coverFile) {
+        // Use raw.githubusercontent.com for covers
         return `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(coverFile)}`;
     }
     
@@ -576,38 +577,6 @@ async function getCoverArt(artist, title, filename) {
     }
     
     return generateColoredCover(artist);
-}
-
-function generateColoredCover(artist) {
-    const colors = [
-        ['#7c3aed', '#5b21b6'],
-        ['#0ea5e9', '#0284c7'],
-        ['#10b981', '#059669'],
-        ['#f59e0b', '#d97706'],
-        ['#ef4444', '#dc2626'],
-    ];
-    
-    const colorSet = colors[artist.length % colors.length];
-    const initials = artist
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase()
-        .substring(0, 3);
-    
-    return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500">
-        <defs>
-            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:${colorSet[0]};stop-opacity:1" />
-                <stop offset="100%" style="stop-color:${colorSet[1]};stop-opacity:1" />
-            </linearGradient>
-        </defs>
-        <rect width="500" height="500" fill="url(#grad)"/>
-        <text x="250" y="250" font-family="Arial" font-size="80" 
-              fill="white" text-anchor="middle" dy=".3em" font-weight="bold">
-            ${initials}
-        </text>
-    </svg>`;
 }
 
 /* ========= GITHUB API SCAN ========= */
