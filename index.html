@@ -15,7 +15,9 @@
   <h2>🌌 Galaxy Music</h2>
 
   <ul id="playlists">
-    <!-- Will be populated by JavaScript -->
+    <li class="active" id="allSongsLi" onclick="loadAll()">All Songs</li>
+    <li id="artistsLi" onclick="loadArtists()">🎤 Artists</li>
+    <li id="likedLi" onclick="loadLiked()">❤️ Liked</li>
   </ul>
 
   <button class="new-playlist" onclick="newPlaylist()">＋ New Playlist</button>
