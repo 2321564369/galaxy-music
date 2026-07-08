@@ -1,3 +1,4 @@
+/*hoi*/
 /* ========= CONFIGURATION ========= */
 const MUSIC_FOLDER = "https://2321564369.github.io/galaxy-music/music/";
 const GITHUB_API_URL = "https://api.github.com/repos/2321564369/galaxy-music/contents/music";
