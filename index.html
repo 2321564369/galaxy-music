@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Galaxy Music</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main/style.css">
+  <link rel="stylesheet" href="./style.css?v=55">
 </head>
 <body>
 
@@ -28,14 +28,23 @@
   <!-- Main -->
   <main class="content">
     <div class="topbar">
-      <h1 id="viewTitle">Scanning music...</h1>
-      <div id="connectionStatus" class="connection-status"></div>
-      <select id="sortSelect">
-        <option value="none">Sort</option>
-        <option value="artist">Artist</option>
-        <option value="album">Genre</option>
-      </select>
+  <h1 id="viewTitle">Scanning music...</h1>
+  <div id="connectionStatus" class="connection-status"></div>
+  <div class="controls-group">
+    <select id="sortSelect">
+      <option value="none">Sort</option>
+      <option value="artist">Artist</option>
+      <option value="album">Genre</option>
+    </select>
+    <div class="caching-toggle">
+      <span class="toggle-label">💾 Cache</span>
+      <label class="toggle-switch-mini">
+        <input type="checkbox" id="cachingToggle" checked>
+        <span class="toggle-slider-mini"></span>
+      </label>
     </div>
+  </div>
+</div>
 
     <div id="songList" class="songs"></div>
   </main>
@@ -109,6 +118,6 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main/player.js" defer></script>
+<script src="./player.js?v=56"></script>
 </body>
 </html>
