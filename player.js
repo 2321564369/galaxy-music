@@ -1273,27 +1273,6 @@ function renderSongs(arr, shouldScroll = false) {
 }
 
 /* ========= ARTISTS FUNCTIONS ========= */
-function loadArtists() {
-    selectedArtist = null;
-    currentPlaylist = "artists";
-    if (searchQuery) clearSearch();
-    
-    const artistMap = new Map();
-    songs.forEach(song => {
-        if (!artistMap.has(song.artist)) {
-            artistMap.set(song.artist, []);
-        }
-        artistMap.get(song.artist).push(song);
-    });
-    
-    const sortedArtists = Array.from(artistMap.entries()).sort((a, b) => 
-        a[0].localeCompare(b[0])
-    );
-    
-    viewTitle.innerText = `Artists (${sortedArtists.length})`;
-    renderArtists(sortedArtists);
-    renderPlaylists();
-}
 
 function renderArtists(artists) {
     if (!artists || artists.length === 0) {
@@ -1383,6 +1362,28 @@ function loadAll() {
     renderSongs(currentSongs, false);
     renderPlaylists();
     viewTitle.innerText = `All Songs (${songs.length})`;
+}
+
+function loadArtists() {
+    selectedArtist = null;
+    currentPlaylist = "artists";
+    if (searchQuery) clearSearch();
+    
+    const artistMap = new Map();
+    songs.forEach(song => {
+        if (!artistMap.has(song.artist)) {
+            artistMap.set(song.artist, []);
+        }
+        artistMap.get(song.artist).push(song);
+    });
+    
+    const sortedArtists = Array.from(artistMap.entries()).sort((a, b) => 
+        a[0].localeCompare(b[0])
+    );
+    
+    viewTitle.innerText = `Artists (${sortedArtists.length})`;
+    renderArtists(sortedArtists);
+    renderPlaylists();
 }
 
 function loadLiked() {
