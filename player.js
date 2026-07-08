@@ -1415,24 +1415,28 @@ function renderPlaylists() {
     const playlistsList = document.getElementById("playlists");
     playlistsList.innerHTML = '';
     
+    // All Songs
     const allLi = document.createElement("li");
-    if (currentPlaylist === null) allLi.className = "active";
+    if (currentPlaylist === null || currentPlaylist === "all") allLi.className = "active";
     allLi.onclick = function() { if (searchQuery) clearSearch(); loadAll(); };
     allLi.textContent = "All Songs";
     playlistsList.appendChild(allLi);
     
+    // Artists
     const artistsLi = document.createElement("li");
     if (currentPlaylist === "artists") artistsLi.className = "active";
     artistsLi.onclick = function() { if (searchQuery) clearSearch(); loadArtists(); };
     artistsLi.textContent = "🎤 Artists";
     playlistsList.appendChild(artistsLi);
     
+    // Liked
     const likedLi = document.createElement("li");
     if (currentPlaylist === "liked") likedLi.className = "active";
     likedLi.onclick = function() { if (searchQuery) clearSearch(); loadLiked(); };
     likedLi.textContent = "❤️ Liked";
     playlistsList.appendChild(likedLi);
     
+    // User playlists
     for (const name in playlists) {
         const li = document.createElement("li");
         li.className = "playlist-item";
@@ -1457,7 +1461,6 @@ function renderPlaylists() {
         playlistsList.appendChild(li);
     }
 }
-
 /* ========= SEARCH FUNCTIONS ========= */
 function searchSongs() {
     if (!searchInput) return;
