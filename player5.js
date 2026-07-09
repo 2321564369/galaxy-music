@@ -1,4 +1,4 @@
-/* ========= CONFIGURATION ========= 3*/
+/* ========= CONFIGURATION ========= */
 // Use jsDelivr for everything (no CORS, no rate limits)
 const JS_DELIVR_BASE = "https://cdn.jsdelivr.net/gh/2321564369/galaxy-music@main";
 const MUSIC_FOLDER = `${JS_DELIVR_BASE}/music/`;
@@ -16,7 +16,7 @@ var searchQuery = "";
 var index = 0;
 var shuffle = false;
 var autoplay = true;
-var cachingEnabled = false; // Disabled by default to avoid rate limits
+var cachingEnabled = false;
 var currentSongId = null;
 var currentCacheBlobUrl = null;
 var liked = JSON.parse(localStorage.getItem("likedSongs")) || [];
@@ -28,7 +28,7 @@ var playlistToDelete = null;
 var isCaching = false;
 var cacheProgress = 0;
 var totalToCache = 0;
-var isPlaying = false; // Prevent multiple songs playing at once
+var isPlaying = false;
 
 /* ========= ELEMENTS ========= */
 var audio = document.getElementById("audio");
@@ -260,6 +260,25 @@ class BeatVisualizer {
   }
 }
 
+/* ========= BEAT VISUALIZER HELPER ========= */
+function initBeatVisualizer() {
+    const audioElement = document.getElementById('audio');
+    beatVisualizer = new BeatVisualizer(audioElement);
+}
+
+function startBeatVisualizer() {
+    if (beatVisualizer && !beatVisualizer.isInitialized) {
+        beatVisualizer.init().then(() => {
+            console.log('Beat visualizer ready');
+            if (!audio.paused) {
+                beatVisualizer.start();
+            }
+        }).catch(e => {
+            console.warn('Beat visualizer init failed:', e);
+        });
+    }
+}
+
 /* ========= CACHING FUNCTIONS ========= */
 async function cacheSingleSong(song) {
     if (!cachingEnabled) return false;
@@ -343,7 +362,7 @@ async function cacheAllSongsBackground(songList) {
     if (isCaching || songList.length === 0 || !cachingEnabled) return;
     
     isCaching = true;
-    totalToCache = Math.min(songList.length, 50); // Only cache 50 max
+    totalToCache = Math.min(songList.length, 50);
     cacheProgress = 0;
     
     console.log(`Starting background cache of ${totalToCache} songs...`);
@@ -368,7 +387,6 @@ async function cacheAllSongsBackground(songList) {
             }
         }
         
-        // Delay to avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 500));
     }
     
@@ -416,32 +434,11 @@ function toggleCaching() {
     updateCachedSongsUI(false);
 }
 
-/* ========= BEAT VISUALIZER HELPER ========= */
-function initBeatVisualizer() {
-    const audioElement = document.getElementById('audio');
-    beatVisualizer = new BeatVisualizer(audioElement);
-    // Don't auto-init - wait for user interaction
-}
-
-// Call this on user interaction
-function startBeatVisualizer() {
-    if (beatVisualizer && !beatVisualizer.isInitialized) {
-        beatVisualizer.init().then(() => {
-            console.log('Beat visualizer ready');
-            if (!audio.paused) {
-                beatVisualizer.start();
-            }
-        }).catch(e => {
-            console.warn('Beat visualizer init failed:', e);
-        });
-    }
-}
-
 /* ========= FILENAME PARSING ========= */
 function parseFilename(filename) {
     let name = filename.replace(/\.mp3$/i, '').replace(/_/g, ' ');
     
-    // Remove duplicate artist names (e.g., "OneRepublic - OneRepublic - Song")
+    // Remove duplicate artist names
     if (name.includes(' - ')) {
         const parts = name.split(' - ');
         if (parts.length >= 2 && parts[0] === parts[1]) {
@@ -477,16 +474,47 @@ function parseFilename(filename) {
     title = title.replace(/Official (Music )?Video/i, '').replace(/Lyric Video/i, '').replace(/\(Lyrics\)/i, '').trim();
     title = title.replace(/\s+/g, ' ').trim();
     
-    if (artist === "Panic! At The Disco") title = "House of Memories";
-    if (artist === "3 Doors Down") title = "Kryptonite";
-    if (artist === "Drowning Pool") title = "Bodies";
-    if (title.includes("Enter Sandman")) artist = "Metallica";
-    if (title.includes("Master of Puppets")) artist = "Metallica";
-    
     return { artist: artist.trim(), title: title.trim(), album: album.trim() };
 }
 
-/* ========= COVER ART SYSTEM ========= */
+/* ========= COVER ART FUNCTIONS ========= */
+function generateColoredCover(artist) {
+    const colors = [
+        ['#7c3aed', '#5b21b6'],
+        ['#0ea5e9', '#0284c7'],
+        ['#10b981', '#059669'],
+        ['#f59e0b', '#d97706'],
+        ['#ef4444', '#dc2626'],
+        ['#ec4899', '#db2777'],
+        ['#8b5cf6', '#7c3aed'],
+        ['#14b8a6', '#0d9488'],
+        ['#f97316', '#ea580c'],
+        ['#6366f1', '#4f46e5']
+    ];
+    
+    const colorSet = colors[artist.length % colors.length];
+    const initials = artist
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase()
+        .substring(0, 3);
+    
+    return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500">
+        <defs>
+            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:${colorSet[0]};stop-opacity:1" />
+                <stop offset="100%" style="stop-color:${colorSet[1]};stop-opacity:1" />
+            </linearGradient>
+        </defs>
+        <rect width="500" height="500" fill="url(#grad)"/>
+        <text x="250" y="250" font-family="Arial" font-size="80" 
+              fill="white" text-anchor="middle" dy=".3em" font-weight="bold">
+            ${initials}
+        </text>
+    </svg>`;
+}
+
 async function scanForCoverFiles() {
     try {
         const response = await fetch(GITHUB_API_URL);
@@ -508,6 +536,7 @@ async function scanForCoverFiles() {
             })
             .map(file => file.name);
         
+        console.log('📸 Cover files found:', coverFilesCache.length);
         return coverFilesCache;
     } catch (error) {
         console.error("Error scanning for cover files:", error);
@@ -519,8 +548,9 @@ function findCoverForSong(mp3Filename) {
     if (!coverFilesCache || coverFilesCache.length === 0) return null;
     
     const baseName = mp3Filename.replace(/\.mp3$/i, '').toLowerCase().replace(/_/g, ' ');
-    const baseNameWithUnderscores = mp3Filename.replace(/\.mp3$/i, '').toLowerCase();
+    const baseNameUnderscore = mp3Filename.replace(/\.mp3$/i, '').toLowerCase();
     
+    // Try exact match with spaces
     const exactMatch = coverFilesCache.find(cover => {
         const coverBase = cover.replace(/\.[^.]+$/, '').toLowerCase().replace(/_/g, ' ');
         return coverBase === baseName;
@@ -528,13 +558,15 @@ function findCoverForSong(mp3Filename) {
     
     if (exactMatch) return exactMatch;
     
-    const exactMatchUnderscore = coverFilesCache.find(cover => {
+    // Try exact match with underscores
+    const exactUnderscore = coverFilesCache.find(cover => {
         const coverBase = cover.replace(/\.[^.]+$/, '').toLowerCase();
-        return coverBase === baseNameWithUnderscores;
+        return coverBase === baseNameUnderscore;
     });
     
-    if (exactMatchUnderscore) return exactMatchUnderscore;
+    if (exactUnderscore) return exactUnderscore;
     
+    // Try partial match
     const partialMatch = coverFilesCache.find(cover => {
         const coverBase = cover.replace(/\.[^.]+$/, '').toLowerCase().replace(/_/g, ' ');
         return coverBase.includes(baseName) || baseName.includes(coverBase);
@@ -542,7 +574,8 @@ function findCoverForSong(mp3Filename) {
     
     if (partialMatch) return partialMatch;
     
-    const genericCovers = ['cover.png', 'cover.jpg', 'album.png', 'album.jpg', 'folder.png', 'folder.jpg'];
+    // Try generic covers
+    const genericCovers = ['cover.png', 'cover.jpg', 'album.png', 'album.jpg', 'folder.png', 'folder.jpg', 'cover.webp'];
     for (const generic of genericCovers) {
         if (coverFilesCache.includes(generic)) {
             return generic;
@@ -553,9 +586,18 @@ function findCoverForSong(mp3Filename) {
 }
 
 async function getCoverArt(artist, title, filename) {
+    // Manual mapping for specific songs
+    const manualCovers = {
+        'the_mountain-epic-508009.mp3': 'the_montain-epic-508009.png'
+    };
+    
+    if (manualCovers[filename]) {
+        const coverFile = manualCovers[filename];
+        return `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(coverFile)}`;
+    }
+    
     const coverFile = findCoverForSong(filename);
     if (coverFile) {
-        // Use raw.githubusercontent.com for covers
         return `https://raw.githubusercontent.com/2321564369/galaxy-music/main/music/${encodeURIComponent(coverFile)}`;
     }
     
@@ -612,7 +654,7 @@ async function scanWithGitHubAPI() {
             .filter(file => file.type === "file" && file.name.toLowerCase().endsWith('.mp3'))
             .map(file => file.name);
         
-        console.log("Found MP3 files:", mp3Files);
+        console.log("Found MP3 files:", mp3Files.length);
         
         if (mp3Files.length > 0) {
             await scanForCoverFiles();
@@ -624,7 +666,7 @@ async function scanWithGitHubAPI() {
         
     } catch (error) {
         console.error("GitHub API scan failed:", error);
-        tryCommonFiles();
+        useCachedSongs(); // Don't try common files - they don't exist
     }
 }
 
@@ -682,50 +724,6 @@ async function loadSongsFromList(fileList) {
     }
 }
 
-async function tryCommonFiles() {
-    console.log("Trying common file patterns...");
-    viewTitle.innerText = "Checking common files...";
-    
-    const commonFiles = [
-        "Panic! At The Disco - House of Memories.mp3",
-        "3 Doors Down - Kryptonite (Official Video).mp3",
-        "Drowning Pool - Bodies (Official HD Music Video).mp3",
-        "Enter Sandman (Remastered).mp3",
-        "Limp Bizkit - Break Stuff (Official Music Video).mp3",
-        "Master of Puppets (Remastered).mp3",
-        "Papa Roach - Last Resort (Squeaky Clean Version) (Official Music Video).mp3",
-        "Rick Astley - Never Gonna Give You Up (Official Music Video) [ ezmp3.cc ].mp3",
-        "Spiderbait - Black Betty (Audio).mp3",
-        "System Of A Down - Toxicity (Official HD Video).mp3",
-        "_NSYNC - Bye Bye Bye (Lyrics) (Deadpool 3 Soundtrack) [ ezmp3.cc ].mp3"
-    ];
-    
-    const foundFiles = [];
-    
-    for (const filename of commonFiles) {
-        try {
-            const url = getMusicUrl(filename);
-            const response = await fetch(url, { method: 'HEAD' });
-            
-            if (response.ok) {
-                foundFiles.push(filename);
-                console.log("✓ Found:", filename);
-            }
-        } catch (error) {}
-    }
-    
-    const uniqueFiles = [...new Set(foundFiles)];
-    
-    if (uniqueFiles.length > 0) {
-        console.log("Found via file check:", uniqueFiles);
-        await scanForCoverFiles();
-        await loadSongsFromList(uniqueFiles);
-    } else {
-        console.log("No files found");
-        useCachedSongs();
-    }
-}
-
 function loadSongDuration(song) {
     return new Promise((resolve) => {
         const audio = new Audio();
@@ -759,7 +757,6 @@ async function finishLoading(loadedSongs) {
     saveSongsToCache();
     loadAll();
     
-    // Don't auto-cache - let users enable it if they want
     if (cachingEnabled) {
         setTimeout(() => {
             cacheAllSongsBackground(songs);
@@ -768,7 +765,6 @@ async function finishLoading(loadedSongs) {
         console.log('Background caching disabled - streaming only');
     }
     
-    // Auto-play first song after loading
     setTimeout(() => {
         if (songs.length > 0 && !isPlaying) {
             const firstEnabledIndex = songs.findIndex(s => !s.disabled);
@@ -818,35 +814,10 @@ function useCachedSongs() {
     }
 }
 
-function rescanSongs() {
-    if (confirm("Clear cache and rescan for new songs?")) {
-        localStorage.removeItem('cachedSongs');
-        localStorage.removeItem('lastScan');
-        
-        songs = [];
-        currentSongs = [];
-        
-        viewTitle.innerText = "Scanning...";
-        list.innerHTML = '<div class="empty"><div class="spinner"></div><p>Scanning with GitHub API...</p></div>';
-        
-        scanWithGitHubAPI();
-    }
-}
-
-function shuffleSongsList() {
-    songs = shuffleArray(songs);
-    songs.forEach((song, index) => {
-        song.id = index;
-    });
-    saveSongsToCache();
-    loadAll();
-    console.log('🔀 Songs shuffled!');
-}
-
 /* ========= PLAYBACK FUNCTIONS ========= */
 async function play(i) {
     if (!currentSongs || i < 0 || i >= currentSongs.length) return;
-    if (isPlaying) return; // Prevent multiple plays
+    if (isPlaying) return;
     
     isPlaying = true;
     
@@ -868,7 +839,6 @@ async function play(i) {
     
     updateNowPlayingUI(song);
     
-    // Start beat visualizer if already initialized
     if (beatVisualizer && beatVisualizer.isInitialized) {
         beatVisualizer.start();
     }
@@ -932,7 +902,6 @@ async function downloadAndPlay(song) {
         
         const blob = await response.blob();
         
-        // Cache if enabled
         if (cachingEnabled) {
             const cache = await caches.open(CACHE_NAME);
             const cacheResponse = new Response(blob, {
@@ -1150,7 +1119,6 @@ function renderSongs(arr, shouldScroll = false) {
     
     let html = '';
     
-    // Add back button if viewing an artist
     if (selectedArtist) {
         html += `
             <div class="back-to-artists" onclick="loadArtists()" style="cursor:pointer; padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:12px; margin-bottom:15px; display:inline-block; border:1px solid rgba(167,139,250,0.15); transition:all 0.2s ease;">
@@ -1159,7 +1127,6 @@ function renderSongs(arr, shouldScroll = false) {
         `;
     }
     
-    // Add artist header if viewing an artist
     if (selectedArtist) {
         const artistSongs = songs.filter(s => s.artist === selectedArtist);
         html += `
@@ -1176,7 +1143,6 @@ function renderSongs(arr, shouldScroll = false) {
         `;
     }
     
-    // Add songs
     html += `<div class="songs-list">`;
     
     arr.forEach(function (s) {
@@ -1225,10 +1191,8 @@ function renderSongs(arr, shouldScroll = false) {
     
     list.innerHTML = html;
     
-    // Add click event listeners to each song after rendering
     document.querySelectorAll('.song').forEach(function(songEl) {
         songEl.addEventListener('click', function(e) {
-            // Don't trigger if click was on a button or toggle
             if (e.target.closest('button') || e.target.closest('.toggle-switch') || e.target.closest('.toggle-slider') || e.target.closest('input')) {
                 return;
             }
@@ -1388,10 +1352,8 @@ function loadPlaylist(name) {
 function renderPlaylists() {
     const playlistsList = document.getElementById("playlists");
     
-    // Clear everything
     playlistsList.innerHTML = '';
     
-    // Create All Songs
     const allLi = document.createElement("li");
     allLi.id = "allSongsLi";
     if (currentPlaylist === null || currentPlaylist === "all") allLi.className = "active";
@@ -1399,7 +1361,6 @@ function renderPlaylists() {
     allLi.textContent = "All Songs";
     playlistsList.appendChild(allLi);
     
-    // Create Artists
     const artistsLi = document.createElement("li");
     artistsLi.id = "artistsLi";
     if (currentPlaylist === "artists") artistsLi.className = "active";
@@ -1407,7 +1368,6 @@ function renderPlaylists() {
     artistsLi.textContent = "🎤 Artists";
     playlistsList.appendChild(artistsLi);
     
-    // Create Liked
     const likedLi = document.createElement("li");
     likedLi.id = "likedLi";
     if (currentPlaylist === "liked") likedLi.className = "active";
@@ -1415,7 +1375,6 @@ function renderPlaylists() {
     likedLi.textContent = "❤️ Liked";
     playlistsList.appendChild(likedLi);
     
-    // Add user playlists
     for (const name in playlists) {
         const li = document.createElement("li");
         li.className = "playlist-item";
@@ -1727,6 +1686,21 @@ function updateConnectionStatus() {
     } else {
         connectionStatus.className = 'connection-status offline';
         connectionStatus.innerHTML = '📶 Offline';
+    }
+}
+
+function rescanSongs() {
+    if (confirm("Clear cache and rescan for new songs?")) {
+        localStorage.removeItem('cachedSongs');
+        localStorage.removeItem('lastScan');
+        
+        songs = [];
+        currentSongs = [];
+        
+        viewTitle.innerText = "Scanning...";
+        list.innerHTML = '<div class="empty"><div class="spinner"></div><p>Scanning with GitHub API...</p></div>';
+        
+        scanWithGitHubAPI();
     }
 }
 
